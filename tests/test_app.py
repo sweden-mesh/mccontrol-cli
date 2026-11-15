@@ -188,7 +188,7 @@ def test_the_keys_dialog_shows_the_provisioning_command_on_one_line(tmp_path):
 
 
 def test_setup_saves_the_control_broker(tmp_path):
-    text, home = walk(tmp_path, [(b"\x1bo", 0.5), (b"\r", 0.5), (b"\x08" * 20 + b"mqtt.example", 0.3), (b"\t" * 3, 0.2),
+    text, home = walk(tmp_path, [(b"\x1bo", 0.5), (b"\r", 0.5), (b"\x08" * len("mqtt-meshcore.louie.se") + b"mqtt.example", 0.3), (b"\t" * 3, 0.2),
                                  (b"mcoar", 0.3), (b"\t", 0.2), (b"pw", 0.3), (b"\r", 0.8)])
     cfg = json.loads((home / "config.json").read_text())
     assert cfg["broker"] == "mqtt.example" and cfg["username"] == "mcoar" and cfg["password"] == "pw"
@@ -220,7 +220,7 @@ def test_setup_turns_tls_off_and_on_and_refuses_anything_else(tmp_path):
 def test_setup_says_whether_a_password_is_set_and_an_empty_field_keeps_it(tmp_path):
     def with_password(home):
         (home / "config.json").write_text(json.dumps({"username": "mcoar", "password": "old"}))
-    text, home = walk(tmp_path, [(b"\x1bo", 0.5), (b"\r", 0.5), (b"\x08" * 20 + b"mqtt.example", 0.3), (b"\r", 0.8)],
+    text, home = walk(tmp_path, [(b"\x1bo", 0.5), (b"\r", 0.5), (b"\x08" * len("mqtt-meshcore.louie.se") + b"mqtt.example", 0.3), (b"\r", 0.8)],
                       prepare=with_password)
     assert "Password (set)" in text
     cfg = json.loads((home / "config.json").read_text())
@@ -500,8 +500,8 @@ def test_keys_register_publishes_and_the_dialog_says_so(tmp_path):
     text, home = walk(tmp_path, [(b"\x1bk", 0.6), (b"\r", 0.8), (b"\t", 0.2), (b"\r", 1.5), (b"\r", 0.4), (b"\x1bk", 0.6), (b"\r", 0.8)],
                       env={"MCCONTROL_FAKE_REGISTER": "ok"}, cols=100, seconds=6.0)
     assert "Registered: ok" in text
-    assert re.search(r"Registered with mqtt\.meshcore-jkp\.se on 20\d\d-\d\d-\d\d", text)
-    assert json.loads((home / "config.json").read_text())["registered"]["broker"] == "mqtt.meshcore-jkp.se"
+    assert re.search(r"Registered with mqtt-meshcore\.louie\.se on 20\d\d-\d\d-\d\d", text)
+    assert json.loads((home / "config.json").read_text())["registered"]["broker"] == "mqtt-meshcore.louie.se"
 
 
 def test_a_greyed_entry_is_drawn_in_the_disabled_colour_and_names_the_build(tmp_path):

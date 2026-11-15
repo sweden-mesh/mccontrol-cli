@@ -435,10 +435,36 @@ def test_a_send_to_the_default_broker_signs_in_with_the_tools_own_key(store, mon
     monkeypatch.setattr(transport, "_wait", lambda *a, **k: None)
     actions.send(store, "ver", device=store.device("loutest"))
     user, password = _FakeClient.logins[-1]
-    assert user == token.username(store.seed()) and token.verify(password, "mqtt.meshcore-jkp.se")[0]
+    assert user == token.username(store.seed()) and token.verify(password, "mqtt-meshcore.louie.se")[0]
     store.save_config(username="mcoar", password="pw")              # a password-file login
     actions.send(store, "ver", device=store.device("loutest"))
     assert _FakeClient.logins[-1] == ("mcoar", "pw")
+
+
+@pytest.mark.parametrize("former", ["mqtt.meshcore-jkp.se", "mqtt.louie.se"])
+def test_a_stored_former_broker_name_moves_to_the_new_one_and_the_token_follows(store, monkeypatch, former):
+    import json
+    from mccontrol import token, transport
+    store.create_key()
+    (store.root / "config.json").write_text(json.dumps({
+        "broker": former, "port": 8883, "wait_secs": 7,
+        "registered": {"broker": former, "at": "2026-10-08 10:00:00"},
+        "tested": {"broker": former, "port": 8883, "ok": True, "at": "2026-10-08 10:00:00"}}))
+    config = store.config()
+    assert config["broker"] == "mqtt-meshcore.louie.se" and config["wait_secs"] == 7
+    assert store.registration() == {"broker": "mqtt-meshcore.louie.se", "at": "2026-10-08 10:00:00"}
+    assert store.tested()["broker"] == "mqtt-meshcore.louie.se"
+    on_disk = json.loads((store.root / "config.json").read_text())
+    assert on_disk["broker"] == "mqtt-meshcore.louie.se"          # written back, once
+    assert on_disk["registered"]["broker"] == "mqtt-meshcore.louie.se"
+    user, password = transport.login(config, store.seed())
+    assert token.verify(password, "mqtt-meshcore.louie.se")[0]
+    assert token.verify(password, former) == (False, "audience")
+
+
+def test_a_broker_the_user_chose_is_not_migrated(store):
+    store.save_config(broker="mqtt.example.org")
+    assert store.config()["broker"] == "mqtt.example.org"
 
 
 def test_registering_publishes_the_signed_key_once_and_remembers_the_brokers_ok(store, monkeypatch):
@@ -459,7 +485,7 @@ def test_registering_publishes_the_signed_key_once_and_remembers_the_brokers_ok(
     ok, detail = actions.register(store)
     assert ok and detail == "ok" and seen["topic"] == "mccontrol/register"
     assert envelope.verify_registration(seen["payload"])[0] == public
-    assert store.registration()["broker"] == "mqtt.meshcore-jkp.se"
+    assert store.registration()["broker"] == "mqtt-meshcore.louie.se"
 
     class _Silent(_FakeClient):
         def publish(self, topic, payload, qos=0):

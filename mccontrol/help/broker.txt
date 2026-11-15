@@ -18,6 +18,6 @@ Signing in. With no username set, the tool signs in to the broker the
 way a node does: the username is "v1_" plus your public key and the
 password a token signed by your key, renewed each session -- nothing to
 hand out, nothing to type. That is how the default broker,
-mqtt.meshcore-jkp.se, knows who is publishing. A login from the broker's
+mqtt-meshcore.louie.se, knows who is publishing. A login from the broker's
 password file sets its username and password here, and then those are
 used.

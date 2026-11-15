@@ -22,7 +22,7 @@ from . import envelope
 # commands and carries the results back, with its own username and password. A region is a
 # property of each device, since one person may run repeaters in several.
 DEFAULT_CONFIG = {
-    "broker": "mqtt.meshcore-jkp.se",
+    "broker": "mqtt-meshcore.louie.se",
     # The command plane is TLS on 8883: the broker's plugin refuses commands and registration
     # on the plain listener, where a token could be copied off the wire.
     "port": 8883,
@@ -49,8 +49,24 @@ DEFAULT_SETS = {
 }
 SET_STEPS = 6
 
+# Earlier names of the default broker, newest first. All name the same server, and its
+# plugin accepts a token only for a name it lists, so a configuration still holding one is
+# moved to the current default on load: the next login signs for the name the broker takes.
+FORMER_BROKERS = ("mqtt.meshcore-jkp.se", "mqtt.louie.se")
+
 SHORTCUT_SLOTS = 9
 DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", "get repeat"]
+
+
+def _migrate_broker(stored):
+    """Rename a former default broker in a stored configuration, and in its records of
+    registering and testing there, to the current default. True when anything changed."""
+    changed = False
+    for record in (stored, stored.get("registered"), stored.get("tested")):
+        if isinstance(record, dict) and record.get("broker") in FORMER_BROKERS:
+            record["broker"] = DEFAULT_CONFIG["broker"]
+            changed = True
+    return changed
 
 
 class StoreError(Exception):
@@ -121,7 +137,10 @@ class Store:
 
     def config(self):
         data = dict(DEFAULT_CONFIG)
-        data.update(self._read_json(self.root / "config.json", {}))
+        stored = self._read_json(self.root / "config.json", {})
+        if _migrate_broker(stored):
+            self._write_json(self.root / "config.json", stored)
+        data.update(stored)
         return data
 
     def save_config(self, **changes):

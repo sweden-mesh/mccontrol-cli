@@ -10,7 +10,7 @@ given to it over its serial console:
 
 On the firmware of 2026-10-08 or later (ar-11) that second line does
 the rest: with no slot configured the node takes its first free MQTT
-slot (3-6), points it at the default broker mqtt.meshcore-jkp.se with the
+slot (3-6), points it at the default broker mqtt-meshcore.louie.se with the
 built-in "mccontrol" preset, and says "reboot to apply". A board without
 PSRAM runs two slots at once; if both are its analyzer uplinks, the node
 says so and asks you to turn one off (set mqtt2.preset none) -- it never

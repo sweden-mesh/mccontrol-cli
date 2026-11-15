@@ -138,10 +138,10 @@ Two lines over its serial console, on the firmware of 2026-10-08 or later (ar-11
 
 ```
 set mqtt.cmd.pubkey <your 64-hex public key>     # mccontrol key prints it
-set mqtt.cmd on                                  # takes a free slot, points it at mqtt.meshcore-jkp.se; reboot
+set mqtt.cmd on                                  # takes a free slot, points it at mqtt-meshcore.louie.se; reboot
 ```
 
-The node answers `OK - slot 3, mccontrol (mqtts://mqtt.meshcore-jkp.se:8883), packets off; reboot to
+The node answers `OK - slot 3, mccontrol (mqtts://mqtt-meshcore.louie.se:8883), packets off; reboot to
 apply`. A board without PSRAM runs two MQTT slots at once; with both analyzer uplinks up it
 says so and asks you to turn one off (`set mqtt2.preset none`) rather than doing it for you.
 Then `mccontrol register` once per key, so the broker checks your commands before they fan out.
@@ -152,15 +152,17 @@ With no username configured, the tool signs in to the broker the way a node does
 username is `v1_` plus its public key, the password a token signed by its key
 (`mccontrol/token.py`, the firmware's own JWT shape byte for byte), renewed each session.
 Nothing is handed out or typed; the key is the identity, and that is how the default broker
-`mqtt.meshcore-jkp.se` knows who publishes. A login from the broker's password file sets its username
+`mqtt-meshcore.louie.se` knows who publishes. A login from the broker's password file sets its username
 and password, and those are used instead.
 
 ## The configuration is the control broker
 
-The only thing configured is the control broker: host (default `mqtt.meshcore-jkp.se`, the broker a
+The only thing configured is the control broker: host (default `mqtt-meshcore.louie.se`, the broker a
 node's `mqtt.cmd.slot` points at), port, username, password and how long to wait for answers.
 The full feature set needs the broker to run the mcbroker Mosquitto plugin. A region belongs to
-a device, not to the configuration.
+a device, not to the configuration. A configuration that still names a former name of the default
+broker (`mqtt.meshcore-jkp.se`, `mqtt.louie.se`) is moved to the current one when it is read, so
+the next login signs its token for the name the broker accepts.
 
 ```
 ~/.config/mccontrol/
