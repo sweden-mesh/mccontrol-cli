@@ -196,3 +196,17 @@ def test_an_r2_verifies_with_the_nodes_key_and_a_forged_one_is_a_finding():
     assert envelope.parse_result("r1|42|0|get txdelay|> 0.5", key[:8], topic=topic, key_hex=key).verified is None
     # a malformed r2
     assert envelope.parse_result("r2|42|0|x|y|short", key[:8]) is None
+
+
+def test_a_command_may_hold_utf8_and_its_limit_is_counted_in_bytes():
+    part = envelope.signed_part(1, 2, "set name SE-JKP-Väster-6F8C")
+    assert part.endswith("|set name SE-JKP-Väster-6F8C")
+    envelope.signed_part(1, 2, "ä" * 80)                 # 160 bytes
+    with pytest.raises(envelope.EnvelopeError, match="bytes"):
+        envelope.signed_part(1, 2, "ä" * 81)             # 81 characters, 162 bytes
+
+
+def test_a_command_with_a_control_character_or_a_lone_surrogate_is_refused():
+    for bad in ("get name\n", "get\tname", "set name a\x7fb", "set name \udcc3"):
+        with pytest.raises(envelope.EnvelopeError, match="printable"):
+            envelope.signed_part(1, 2, bad)

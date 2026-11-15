@@ -97,6 +97,14 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
     if broadcast and envelope.is_transmit(command):
         raise envelope.EnvelopeError("a command that transmits may not be sent to every node; "
                                      "the firmware refuses it, and so does this")
+    if not command.isascii():
+        if broadcast:
+            raise envelope.EnvelopeError("a broadcast is plain ASCII: nodes before lou-17 refuse "
+                                         "letters such as åäö; send it to each node instead")
+        if not firmware.admits_utf8(device.get("ver")):
+            raise envelope.EnvelopeError(
+                f"{device['name']} runs {device.get('ver') or 'an unknown version'}, which takes "
+                f"plain ASCII only; letters such as åäö need lou-17 (refresh to read its version)")
     region = (region or device.get("region") or "").upper()
     if not region:
         raise envelope.EnvelopeError(f"{device['name']} has no region; change the device and set it")

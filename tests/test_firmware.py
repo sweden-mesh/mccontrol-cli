@@ -77,3 +77,10 @@ def test_admits_by_features():
     assert firmware.admits(LOU_RC, "get stats") and firmware.admits(LOU_RC, "region put se-jkp *")
     # An ar-only image has no plane: nothing travels to it.
     assert not any(firmware.admits(LOU_AR, c) for c in ("ver", "get stats", "trigger test"))
+
+
+def test_utf8_in_a_command_arrives_with_lou_17_and_an_unknown_version_is_ascii_only():
+    assert firmware.admits_utf8("esp32s3-v1.18.0-lou-17-arrc-observer-1a2b3c4d")
+    assert not firmware.admits_utf8("esp32s3-v1.18.0-lou-16-arrc-observer-7f153bc")
+    assert not firmware.admits_utf8("esp32s3-v1.17.0-ar-10-observer-8530d4bb")
+    assert not firmware.admits_utf8(None)

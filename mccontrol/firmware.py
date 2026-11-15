@@ -25,6 +25,8 @@ The sets are taken from the firmware's own history (`src/helpers/MqttControlLogi
   ar-13   ar-12's, and the encrypted `v2` envelope (firmware TODO 17a): from here a command
           to one node is sent as v2, below it (and every broadcast) as v1.
   lou-14  ar-13's, less what the image's features leave out (above).
+  lou-17  a command may hold UTF-8 (`set name SE-JKP-Väster`); before it, printable ASCII
+          only, and the broker counted anything else as malformed toward a lockout.
 """
 import re
 
@@ -58,6 +60,10 @@ ARRIVED = {"mqtt.cmd ping": 12}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13
+
+# The first revision that admits UTF-8 in a command (åäö in a name). The broker plugin that
+# passes it must be live before any node runs it.
+UTF8_FROM = 17
 
 
 def revision(version_text):
@@ -177,3 +183,9 @@ def speaks_v2(version_text):
     """Does a node on `version_text` open the encrypted v2 envelope? Unknown: no."""
     rev = revision(version_text)
     return rev is not None and rev >= V2_FROM
+
+
+def admits_utf8(version_text):
+    """Does a node on `version_text` take a command that is not plain ASCII? Unknown: no."""
+    rev = revision(version_text)
+    return rev is not None and rev >= UTF8_FROM

@@ -153,10 +153,14 @@ def signed_part(counter, expiry, command):
     if FIELD_SEP in command:
         raise EnvelopeError(f"a command may not contain {FIELD_SEP!r}; "
                             f"for a region tree use 'region put' one name at a time")
-    if not command or len(command) > MAX_COMMAND:
-        raise EnvelopeError(f"a command is 1..{MAX_COMMAND} characters")
-    if not command.isprintable() or not command.isascii():
-        raise EnvelopeError("a command is printable ASCII")
+    if not command.isprintable():
+        raise EnvelopeError("a command is printable text")
+    try:
+        size = len(command.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise EnvelopeError("a command is printable text") from None
+    if not command or size > MAX_COMMAND:
+        raise EnvelopeError(f"a command is 1..{MAX_COMMAND} bytes")
     if not 0 <= counter <= 0xFFFFFFFF:
         raise EnvelopeError("the counter must fit in 32 bits")
     return f"{VERSION_TAG}{FIELD_SEP}{counter}{FIELD_SEP}{expiry}{FIELD_SEP}{command}"
@@ -478,7 +482,7 @@ def build_v2(seed_hex, topic, counter, command, node_key_hex, ttl_secs=DEFAULT_T
     expiry = now + ttl_secs
     signed_part(counter, expiry, command)          # the same rules for the command as v1
     head = f"{V2_TAG}{FIELD_SEP}{counter}{FIELD_SEP}{expiry}"
-    plain = pad(command.encode("ascii"), V2_COMMAND_PADS)
+    plain = pad(command.encode("utf-8"), V2_COMMAND_PADS)
     sealed = seal(v2_key(seed_hex, node_key_hex, topic), DIR_COMMAND, counter, head.encode("ascii"), plain)
     part = f"{head}{FIELD_SEP}{_b64(sealed)}"
     signature = eddsa.new(key_from_seed(seed_hex), "rfc8032").sign(signed_message(topic, part))

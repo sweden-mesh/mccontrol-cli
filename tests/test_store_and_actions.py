@@ -84,6 +84,23 @@ def test_a_broadcast_of_a_transmit_command_is_refused_before_signing(store):
         actions.send(store, "trigger test", region="JKG", dry_run=True)
 
 
+def test_aao_goes_only_to_a_node_whose_firmware_takes_it_and_never_as_a_broadcast(store, monkeypatch):
+    store.create_key()
+    store.add_device("LOUTEST", NODE, "JKG")
+    monkeypatch.setattr(actions.transport, "send", lambda *a, **k: pytest.fail("sent"))
+    with pytest.raises(envelope.EnvelopeError, match="lou-17"):
+        actions.send(store, "set name SE-JKP-Väster", device=store.device("LOUTEST"), dry_run=True)
+    store.update_device(NODE, ver="esp32s3-v1.18.0-lou-16-arrc-observer-7f153bc")
+    with pytest.raises(envelope.EnvelopeError, match="lou-16.*plain ASCII"):
+        actions.send(store, "set name SE-JKP-Väster", device=store.device("LOUTEST"), dry_run=True)
+    store.update_device(NODE, ver="esp32s3-v1.18.0-lou-17-arrc-observer-1a2b3c4d")
+    topic, payload, _a, _l = actions.send(store, "set name SE-JKP-Väster",
+                                          device=store.device("LOUTEST"), dry_run=True)
+    assert topic.endswith("/cmd") and payload
+    with pytest.raises(envelope.EnvelopeError, match="broadcast is plain ASCII"):
+        actions.send(store, "set name Väster", region="JKG", dry_run=True)
+
+
 def test_a_broadcast_goes_to_one_region_and_hears_only_that_regions_devices(store, monkeypatch):
     store.create_key()
     store.add_device("LOUTEST", NODE, "JKG")
