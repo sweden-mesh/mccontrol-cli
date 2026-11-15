@@ -22,7 +22,7 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, t
        1. Work with devices
        2. Send a command
        3. Send a command to every node in a region  Broker
-       4. Run a command set                                 mqtt.louie.se:8883
+       4. Run a command set                                 mqtt.meshcore-jkp.se:8883
        5. Discover devices                          Signing key present
        6. Work with command sets                    Registered  no - select 8
        7. Work with shortcuts                       Tested      no - select 10

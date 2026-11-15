@@ -1689,7 +1689,7 @@
     },
     "description": "The control broker and how long to wait; command sets and shortcuts have their own routes.",
     "example": {
-     "broker": "mqtt.louie.se",
+     "broker": "mqtt.meshcore-jkp.se",
      "port": 1883,
      "username": "",
      "password_set": false,
@@ -1778,7 +1778,7 @@
     },
     "description": "Only the fields given change; an unknown field is a 400.",
     "example": {
-     "broker": "mqtt.louie.se",
+     "broker": "mqtt.meshcore-jkp.se",
      "port": 1883,
      "username": "mcoar",
      "password": "secret"

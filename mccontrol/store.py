@@ -22,7 +22,7 @@ from . import envelope
 # commands and carries the results back, with its own username and password. A region is a
 # property of each device, since one person may run repeaters in several.
 DEFAULT_CONFIG = {
-    "broker": "mqtt.louie.se",
+    "broker": "mqtt.meshcore-jkp.se",
     # The command plane is TLS on 8883: the broker's plugin refuses commands and registration
     # on the plain listener, where a token could be copied off the wire.
     "port": 8883,

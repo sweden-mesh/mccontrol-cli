@@ -168,8 +168,8 @@ def test_a_found_node_says_what_it_is_known_as_here_even_unnamed():
 
 def test_a_broker_test_lists_its_steps_then_the_key_and_registration():
     lines = fmt.test_lines({"steps": [{"step": "connect", "ok": True, "detail": "fine"}], "key": "AB",
-                            "registered": {"broker": "mqtt.louie.se", "at": "2026-10-08 10:00:00"}})
-    assert lines[0].startswith("ok    connect") and "present" in lines[1] and "mqtt.louie.se on 2026-10-08" in lines[2]
+                            "registered": {"broker": "mqtt.meshcore-jkp.se", "at": "2026-10-08 10:00:00"}})
+    assert lines[0].startswith("ok    connect") and "present" in lines[1] and "mqtt.meshcore-jkp.se on 2026-10-08" in lines[2]
 
 
 # -- the walks: a screen each ---------------------------------------------------------------

@@ -435,7 +435,7 @@ def test_a_send_to_the_default_broker_signs_in_with_the_tools_own_key(store, mon
     monkeypatch.setattr(transport, "_wait", lambda *a, **k: None)
     actions.send(store, "ver", device=store.device("loutest"))
     user, password = _FakeClient.logins[-1]
-    assert user == token.username(store.seed()) and token.verify(password, "mqtt.louie.se")[0]
+    assert user == token.username(store.seed()) and token.verify(password, "mqtt.meshcore-jkp.se")[0]
     store.save_config(username="mcoar", password="pw")              # a password-file login
     actions.send(store, "ver", device=store.device("loutest"))
     assert _FakeClient.logins[-1] == ("mcoar", "pw")
@@ -459,7 +459,7 @@ def test_registering_publishes_the_signed_key_once_and_remembers_the_brokers_ok(
     ok, detail = actions.register(store)
     assert ok and detail == "ok" and seen["topic"] == "mccontrol/register"
     assert envelope.verify_registration(seen["payload"])[0] == public
-    assert store.registration()["broker"] == "mqtt.louie.se"
+    assert store.registration()["broker"] == "mqtt.meshcore-jkp.se"
 
     class _Silent(_FakeClient):
         def publish(self, topic, payload, qos=0):

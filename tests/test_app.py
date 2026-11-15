@@ -500,8 +500,8 @@ def test_keys_register_publishes_and_the_dialog_says_so(tmp_path):
     text, home = walk(tmp_path, [(b"\x1bk", 0.6), (b"\r", 0.8), (b"\t", 0.2), (b"\r", 1.5), (b"\r", 0.4), (b"\x1bk", 0.6), (b"\r", 0.8)],
                       env={"MCCONTROL_FAKE_REGISTER": "ok"}, cols=100, seconds=6.0)
     assert "Registered: ok" in text
-    assert re.search(r"Registered with mqtt\.louie\.se on 20\d\d-\d\d-\d\d", text)
-    assert json.loads((home / "config.json").read_text())["registered"]["broker"] == "mqtt.louie.se"
+    assert re.search(r"Registered with mqtt\.meshcore-jkp\.se on 20\d\d-\d\d-\d\d", text)
+    assert json.loads((home / "config.json").read_text())["registered"]["broker"] == "mqtt.meshcore-jkp.se"
 
 
 def test_a_greyed_entry_is_drawn_in_the_disabled_colour_and_names_the_build(tmp_path):

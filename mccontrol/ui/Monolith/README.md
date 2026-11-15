@@ -18,7 +18,7 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, a
 ```
  ▞▚ M O N O L I T H ▚▞  mccontrol  amber                              00:15:57
 ╭─ ◉ DEVICES ──────────────────────────────╮╭─ ● STATUS ───────────────────────╮
-│   Name               Node     Reg  Sent  ││ BROKER  mqtt.louie.se:8883       │
+│   Name               Node     Reg  Sent  ││ BROKER  mqtt.meshcore-jkp.se:8883       │
 │   Far                FD700369 GOT  -     ││ KEY     2A6A1C1E…                │
 │   Gisebo             4AC61A7F JKG  -     ││ REG     no  :register            │
 │   (unnamed)          65C1D12C JKG  -     ││ LINK    untested  :test          │
@@ -57,7 +57,7 @@ header is the block-letter title:
 │                                              ││ autoreply hops    8              3 d ││       Sat 10 Oct 2026        │
 │                                              ││ autoreply mode    flood          3 d │╰──────────────────────────────╯
 │                                              ││ autoreply d.flood on             3 d │╭─ ● STATUS ───────────────────╮
-│                                              ││ autoreply private off            3 d ││ BROKER  mqtt.louie.se:8883   │
+│                                              ││ autoreply private off            3 d ││ BROKER  mqtt.meshcore-jkp.se:8883   │
 │                                              ││ autoreply channel #test-jkg      3 d ││ KEY     2A6A1C1E…            │
 │                                              ││ regions           * F            3 d ││ REG     no  :register        │
 │                                              ││ neighbors         > 2 neighbours 3 d ││ LINK    untested  :test      │

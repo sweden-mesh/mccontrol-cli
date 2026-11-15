@@ -164,7 +164,7 @@ def test_register_from_the_command_line(tmp_path, monkeypatch, capsys):
     assert cli.main(["keygen"]) == 0
     capsys.readouterr()
     assert cli.main(["register"]) == 0 and "registered: ok" in capsys.readouterr().out
-    assert cli.main(["key"]) == 0 and "registered with mqtt.louie.se on" in capsys.readouterr().out
+    assert cli.main(["key"]) == 0 and "registered with mqtt.meshcore-jkp.se on" in capsys.readouterr().out
     monkeypatch.setenv("MCCONTROL_FAKE_REGISTER", "refused locked out")
     assert cli.main(["register"]) == 1 and "not registered: refused locked out" in capsys.readouterr().out
 
