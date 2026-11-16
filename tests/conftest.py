@@ -18,6 +18,14 @@ SCRIPT = {"4AC61A7F": [0, "> * F"], "65C1D12C": [14, ""],
           "AB6B9285": [0, "> on"], "AB6B9285|get name": [0, "> SE-JKG-UGORptr"]}
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    """No test may read or write the real ~/.config/mccontrol: a stray default store once
+    switched the operator's TLS off. Tests that pass their own home are unaffected."""
+    monkeypatch.setenv("MCCONTROL_HOME", str(tmp_path / "isolated-home"))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+
 @pytest.fixture
 def api(tmp_path, monkeypatch):
     """`(server, base_url, store)` with a key and three devices; the broker is SCRIPT."""
