@@ -150,10 +150,20 @@ def _label(d):
 # -- checks before a thread starts -------------------------------------------------------
 
 def _targets(ctx, body):
-    """`(devices, region)`: exactly one of devices, tagged, region."""
-    given = [k for k in ("devices", "tagged", "region") if body.get(k)]
+    """`(devices, region)`: exactly one of devices, tagged, group, region. A group is its
+    members one by one, each on its own topic, never a broadcast."""
+    given = [k for k in ("devices", "tagged", "group", "region") if body.get(k)]
     if len(given) != 1:
-        raise bad("exactly one target: devices, tagged or region")
+        raise bad("exactly one target: devices, tagged, group or region")
+    if given[0] == "group":
+        if not isinstance(body["group"], str):
+            raise bad("group is a string")
+        members = ctx.store.group(body["group"])
+        if members is None:
+            raise not_found(f"no group named {body['group'].strip().lower()}")
+        if not members:
+            raise bad(f"group {body['group'].strip().lower()} has no devices")
+        return [ctx.store.device(n) for n in members], None
     if given[0] == "region":
         if not isinstance(body["region"], str):
             raise bad("region is a string")
@@ -214,6 +224,7 @@ def start_send(ctx, _p, _q, body):
     devices, region = _targets(ctx, body)
     _vet(ctx, [command], region, body)
     dry, wait = bool(body.get("dry_run")), _wait(body)
+    group = body.get("group")
     store = ctx.store
 
     def work(job):
@@ -235,8 +246,16 @@ def start_send(ctx, _p, _q, body):
                 break
             label = _label(d)
             text = lambda _n, a=answered, label=label, i=i: f"{a} of {len(devices)} answered; waiting for {label} ({i + 1} of {len(devices)})"
-            topic, _pl, answers, l = actions.send(store, command, device=d, dry_run=dry, wait_secs=wait,
-                                                  progress=ticker(job, text), script=ctx.script)
+            try:
+                topic, _pl, answers, l = actions.send(store, command, device=d, dry_run=dry, wait_secs=wait,
+                                                      progress=ticker(job, text), script=ctx.script)
+            except envelope.EnvelopeError as exc:
+                if not group:
+                    raise
+                job.land({"node": d["node"], "name": label, "command": command, "ok": False, "code": None,
+                          "code_name": None, "reply": None, "verified": None, "line": f"not sent: {exc}"})
+                lines.append(f"{label[:12]:12} not sent: {exc}")
+                continue
             r = answers.get(d["node"])
             answered += r is not None
             asked += 1

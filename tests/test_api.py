@@ -161,6 +161,15 @@ def test_every_route_answers_as_its_schema_says(api, monkeypatch):
     assert call(url, "PUT", "/sets/reads", {"steps": ["ver", " get name "]})[1]["steps"] == ["ver", "get name"]
     assert call(url, "DELETE", "/sets/add-scope")[1] == {"removed": "add-scope"}
     assert call(url, "DELETE", "/sets/add-scope")[0] == 404
+    assert call(url, "POST", "/groups", {"name": "Canary", "devices": ["gisebo"]})[0] == 201
+    assert call(url, "POST", "/groups", {"name": "canary"})[0] == 409
+    assert call(url, "POST", "/groups/canary/devices", {"devices": ["far"]})[1]["members"][1]["node"] == "FD700369"
+    assert call(url, "DELETE", "/groups/canary/devices?devices=gisebo")[1]["members"] == [
+        {"node": "FD700369", "name": "Far", "region": "GOT"}]
+    assert call(url, "GET", "/groups/canary")[1]["name"] == "canary"
+    assert [g["name"] for g in call(url, "GET", "/groups")[1]["groups"]] == ["canary"]
+    assert call(url, "DELETE", "/groups/canary")[1] == {"removed": "canary"}
+    assert call(url, "DELETE", "/groups/canary")[0] == 404
     assert call(url, "GET", "/shortcuts")[1]["shortcuts"][0] == "region"
     assert call(url, "PUT", "/shortcuts", {"shortcuts": ["ver"]})[1]["shortcuts"][:2] == ["ver", ""]
     assert any(t["name"] == "send" for t in call(url, "GET", "/help")[1]["topics"])

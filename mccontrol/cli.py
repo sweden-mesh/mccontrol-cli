@@ -9,6 +9,9 @@
     mccontrol send <device> <command...>      (--dry-run to only sign)
     mccontrol send <region> <command...> --all   every node in that region
     mccontrol regions <device>
+    mccontrol groups               your device groups and their members
+    mccontrol group create|delete|add|remove <group> [device...]
+    mccontrol group send <group> <command...>   each member in turn, on its own topic
     mccontrol history <device>
     mccontrol discover <region> [--add]   the nodes there that accept your key
     mccontrol test [--region R]    connect, sign in, subscribe and publish on the control broker
@@ -60,6 +63,13 @@ def build_parser():
     s.add_argument("--all", action="store_true", help="every node in that region at once")
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
+    sub.add_parser("groups", help="list your device groups and their members")
+    gp = sub.add_parser("group", help="make and change a device group, or send a command to every device in it")
+    gp.add_argument("action", choices=("create", "delete", "add", "remove", "show", "send"))
+    gp.add_argument("group", help="the group's name, one word, e.g. canary")
+    gp.add_argument("words", nargs="*", help="devices (create, add, remove) or the command (send)")
+    gp.add_argument("--dry-run", action="store_true", help="send: sign and print, send nothing")
+    gp.add_argument("--yes", action="store_true", help="send: do not ask about a command that takes something away")
     g = sub.add_parser("regions", help="read a device's region map")
     g.add_argument("device")
     al = sub.add_parser("alt", help="send shortcut n (Alt+n in the interface) to a device")
@@ -285,6 +295,78 @@ def _send(api, args, command=None):
     return 0
 
 
+def _show_group(group):
+    print(f"{group['name']} ({len(group['members'])})")
+    for m in group["members"]:
+        print(f"  {m['name']:18} {m['node'][:8]}  {m['region']}")
+
+
+def _groups(api, _args):
+    groups = api.list_groups()["groups"]
+    if not groups:
+        print("no groups yet: mccontrol group create <name> [device...]")
+    for group in groups:
+        _show_group(group)
+    return 0
+
+
+def _group(api, args):
+    name, words = args.group, args.words
+    if args.action == "send":
+        return _group_send(api, args)
+    if args.action in ("add", "remove") and not words:
+        raise ApiError("store", f"group {args.action} takes the group and at least one device", 0)
+    nodes = [_device(api, ref)["node"] for ref in words]
+    if args.action == "create":
+        _show_group(api.create_group(name, nodes))
+    elif args.action == "delete":
+        api.delete_group(name)
+        print(f"deleted group {name.lower()}; its devices stay")
+    elif args.action == "add":
+        _show_group(api.group_add(name, nodes))
+    elif args.action == "remove":
+        _show_group(api.group_remove(name, nodes))
+    else:
+        _show_group(api.get_group(name))
+    return 0
+
+
+def _group_send(api, args):
+    """One signed per-node command to each member in turn, as a send to the tagged is; each
+    member's history keeps it. A line per device, then the count."""
+    command = " ".join(args.words)
+    if not command:
+        raise ApiError("store", "group send takes the group and then the command", 0)
+    group = api.get_group(args.group)
+    why = api.check_command(command)["caution"]
+    if why and not args.dry_run and not args.yes:
+        print(f"'{command}' {why}\nSend it to the {len(group['members'])} devices of {group['name']}? [y/N] ",
+              end="", flush=True)
+        if input().strip().lower() != "y":
+            print("not sent")
+            return 2
+    job = _job(api, api.start_send(command, group=group["name"], dry_run=args.dry_run, confirm=True), quiet=args.dry_run)
+    if job is None:
+        return 130
+    if args.dry_run:
+        print("\n".join(job["result"]["lines"]))
+        return 0
+    ok = refused = silent = unsent = 0
+    for o in job["outcomes"]:
+        if o["line"].startswith("not sent"):
+            unsent += 1
+        elif o["code"] is None:
+            silent += 1
+        elif o["ok"]:
+            ok += 1
+        else:
+            refused += 1
+        print(f"{o['name'][:18]:18} {o['line']}")
+    print(f"{group['name']}: {ok + refused + silent} of {len(group['members'])} sent; "
+          f"{ok} ok, {refused} refused, {silent} no answer" + (f", {unsent} not sent" if unsent else ""))
+    return 0 if ok == len(group["members"]) else 1
+
+
 def _alt(api, args):
     slots = api.shortcuts()["shortcuts"]
     if not 1 <= args.n <= len(slots) or not slots[args.n - 1]:
@@ -489,7 +571,7 @@ def _history(api, args):
 
 
 COMMANDS = {"keygen": _keygen, "key": _key, "config": _config, "add": _add, "devices": _devices,
-            "remove": _remove, "send": _send, "regions": _regions, "history": _history,
+            "remove": _remove, "send": _send, "groups": _groups, "group": _group, "regions": _regions, "history": _history,
             "discover": _discover, "test": _test, "help": _help, "alt": _alt, "shortcuts": _shortcuts,
             "run": _run, "sets": _sets, "stats": _stats, "register": _register, "fleet": _fleet, "refresh": _refresh, "commands": _commands, "reads": _reads}
 

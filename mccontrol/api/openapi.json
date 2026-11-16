@@ -863,6 +863,217 @@
     ]
    }
   },
+  "/groups": {
+   "get": {
+    "operationId": "list_groups",
+    "summary": "The device groups and their members",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Groups"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     }
+    }
+   },
+   "post": {
+    "operationId": "create_group",
+    "summary": "Create a group, empty or with devices",
+    "responses": {
+     "201": {
+      "description": "Created",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Group"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     },
+     "409": {
+      "$ref": "#/components/responses/Conflict"
+     }
+    },
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GroupCreate"
+       }
+      }
+     }
+    }
+   }
+  },
+  "/groups/{name}": {
+   "get": {
+    "operationId": "get_group",
+    "summary": "A group and its members",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Group"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    },
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "description": "the group",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "delete_group",
+    "summary": "Delete a group; its devices stay",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Removed"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    },
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "description": "the group",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ]
+   }
+  },
+  "/groups/{name}/devices": {
+   "post": {
+    "operationId": "group_add",
+    "summary": "Add devices to a group",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Group"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    },
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GroupChange"
+       }
+      }
+     }
+    },
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "description": "the group",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ]
+   },
+   "delete": {
+    "operationId": "group_remove",
+    "summary": "Take devices out of a group; the devices stay",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Group"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     },
+     "404": {
+      "$ref": "#/components/responses/NotFound"
+     }
+    },
+    "parameters": [
+     {
+      "name": "name",
+      "in": "path",
+      "required": true,
+      "description": "the group",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "devices",
+      "in": "query",
+      "required": true,
+      "description": "comma-separated device refs",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ]
+   }
+  },
   "/sets": {
    "get": {
     "operationId": "sets",
@@ -1222,7 +1433,7 @@
   "/jobs/send": {
    "post": {
     "operationId": "start_send",
-    "summary": "Sign and send a command to devices, the tagged, or a region",
+    "summary": "Sign and send a command to devices, the tagged, a group, or a region",
     "responses": {
      "202": {
       "description": "Accepted: the job is running",
@@ -2723,6 +2934,97 @@
      "regions"
     ]
    },
+   "GroupMember": {
+    "type": "object",
+    "properties": {
+     "node": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "region": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "node",
+     "name",
+     "region"
+    ]
+   },
+   "Group": {
+    "type": "object",
+    "description": "A named group of devices kept by mccontrol; a send to it is one signed per-node command to each member, never a broadcast.",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "members": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/GroupMember"
+      }
+     }
+    },
+    "required": [
+     "name",
+     "members"
+    ]
+   },
+   "Groups": {
+    "type": "object",
+    "properties": {
+     "groups": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Group"
+      }
+     }
+    },
+    "required": [
+     "groups"
+    ]
+   },
+   "GroupCreate": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "one word: letters, digits, - _ ."
+     },
+     "devices": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "example": {
+     "name": "canary",
+     "devices": [
+      "loutest"
+     ]
+    }
+   },
+   "GroupChange": {
+    "type": "object",
+    "properties": {
+     "devices": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "devices"
+    ],
+    "description": "devices by name, node or unique prefix"
+   },
    "Sets": {
     "type": "object",
     "properties": {
@@ -3154,6 +3456,10 @@
      "tagged": {
       "type": "boolean"
      },
+     "group": {
+      "type": "string",
+      "description": "a group's name: each member gets its own per-node command, in turn"
+     },
      "region": {
       "type": "string"
      },
@@ -3168,7 +3474,7 @@
       "type": "number"
      }
     },
-    "description": "Exactly one target: devices, tagged (the tagged devices), or region (one broadcast).",
+    "description": "Exactly one target: devices, tagged (the tagged devices), group (its members, one by one), or region (one broadcast).",
     "example": {
      "command": "region",
      "tagged": true
@@ -3194,6 +3500,10 @@
      },
      "tagged": {
       "type": "boolean"
+     },
+     "group": {
+      "type": "string",
+      "description": "a group's name: each member gets its own per-node command, in turn"
      },
      "region": {
       "type": "string"

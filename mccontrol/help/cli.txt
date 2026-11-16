@@ -13,6 +13,10 @@ The same work without the screens:
   mccontrol send JKG region allowf se-jkp --all
   mccontrol send loutest region --dry-run     sign and print, send nothing
   mccontrol regions loutest             read the map
+  mccontrol group create canary loutest gisebo   a named group of devices
+  mccontrol group add|remove canary <device...>
+  mccontrol group send canary ver       each member in turn, its own topic
+  mccontrol groups                      the groups and their members
   mccontrol history loutest
   mccontrol help [topic]                this help as text
 

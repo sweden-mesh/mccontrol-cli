@@ -4,6 +4,7 @@
         key.seed          the private signing seed, 64 hex, mode 0600; never printed
         config.json       brokers (the shared one, and any region's own), defaults
         devices.json      the devices you manage: name, node hex, notes, last seen
+        groups.json       named groups of devices (`canary`, a site): name -> node ids
         history/<node>.jsonl   every command sent to that device and what came back
 
 Override the directory with MCCONTROL_HOME. Nothing here is ever sent anywhere except the
@@ -348,6 +349,51 @@ class Store:
     def remove_device(self, node):
         devices = [d for d in self.devices() if d["node"] != node]
         self._write_json(self.root / "devices.json", devices)
+        groups = self._read_json(self.root / "groups.json", {})
+        if any(node in members for members in groups.values()):      # a forgotten device leaves its groups
+            self._write_json(self.root / "groups.json", {n: [m for m in ms if m != node] for n, ms in groups.items()})
+
+    # -- groups (RM-4) -----------------------------------------------------------------
+    # A group is a name and the node ids of its members, kept here and nowhere else: a send
+    # to a group is one signed per-node command to each member, never a broadcast.
+
+    def groups(self):
+        """`{name: [node, ...]}`, sorted by name, each member a device still known."""
+        known = {d["node"] for d in self.devices()}
+        groups = self._read_json(self.root / "groups.json", {})
+        return {n: [m for m in groups[n] if m in known] for n in sorted(groups)}
+
+    def group(self, name):
+        """The members of `name`, None when there is no such group."""
+        return self.groups().get((name or "").strip().lower())
+
+    def create_group(self, name, nodes=()):
+        name = (name or "").strip().lower()
+        if not name or not all(c.isalnum() or c in "-_." for c in name):
+            raise StoreError("a group's name is one word: letters, digits, - _ .")
+        groups = self._read_json(self.root / "groups.json", {})
+        if name in groups:
+            raise StoreError(f"a group named {name!r} already exists")
+        groups[name] = list(dict.fromkeys(nodes))
+        self._write_json(self.root / "groups.json", groups)
+        return groups[name]
+
+    def delete_group(self, name):
+        groups = self._read_json(self.root / "groups.json", {})
+        if groups.pop((name or "").strip().lower(), None) is None:
+            raise StoreError(f"no group named {name}")
+        self._write_json(self.root / "groups.json", groups)
+
+    def change_group(self, name, add=(), remove=()):
+        """Add `add` and take out `remove` (node ids); the members after."""
+        name = (name or "").strip().lower()
+        groups = self._read_json(self.root / "groups.json", {})
+        if name not in groups:
+            raise StoreError(f"no group named {name}")
+        members = [m for m in dict.fromkeys(list(groups[name]) + list(add)) if m not in set(remove)]
+        groups[name] = members
+        self._write_json(self.root / "groups.json", groups)
+        return self.group(name)
 
     # -- history -----------------------------------------------------------------------
 

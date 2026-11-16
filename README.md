@@ -104,6 +104,15 @@ columns the directory shows.
 - **Sending.** One signed publish per tagged device to its own topic, or one broadcast to a
   region; results per device as each interface shows them, kept in history; what each device
   answered is parsed into its facts (`GET /devices/{ref}/facts`).
+- **Groups.** A named group of devices kept here (`groups.json`), such as `canary` or a site,
+  so one action sends the same command to all of them. Each member still gets its own signed
+  per-node command on its own topic, through its own region's broker, one after another as a
+  send to the tagged does: never a broadcast, no firmware change. Every member's history keeps
+  the command and its answer; a member that refuses, stays silent or cannot take the command
+  is reported and the rest still go. `mccontrol group create canary loutest gisebo`,
+  `group add|remove|show|delete`, `mccontrol groups`, and `mccontrol group send canary ver`,
+  which prints a line per device and `canary: 2 of 2 sent; 1 ok, 1 refused, 0 no answer`.
+  The API has `/groups` and a `group` target on `/jobs/send` and `/jobs/run-set`.
 - **Command sets.** A named list of steps (`region put`, `region allowf`, `region save`, `region`
   is the shipped example) sent in order to the targets, stopping at the first refusal or silence;
   every interface runs and defines them, as does `mccontrol run` and `mccontrol sets`.
@@ -129,6 +138,7 @@ mccontrol refresh [device...]            # get name and ver over the control pla
 mccontrol reads loutest                  # what it last answered to each read, with the age
 mccontrol commands [device]              # the command table; with a device, what its firmware lacks is marked
 mccontrol history loutest                # a forged reply says BAD SIGNATURE, an unsigned one (unsigned)
+mccontrol group send canary ver          # each device of a group in turn; mccontrol groups lists them
 mccontrol devices | add | remove | discover | key | keygen | config | test | help
 ```
 
@@ -222,6 +232,7 @@ the next login signs its token for the name the broker accepts.
     key.seed            your private seed, mode 600
     config.json         the control brokers, where the key is registered, how long to wait
     devices.json        your devices, each with its region
+    groups.json         your device groups: name -> the devices in it
     history/<node>.jsonl
 ```
 

@@ -146,6 +146,26 @@ class Client:
     def resolve_regions(self, text):
         return self.call("GET", "/regions/resolve", {"text": text})
 
+    # -- groups ------------------------------------------------------------------------
+
+    def list_groups(self):
+        return self.call("GET", "/groups")
+
+    def get_group(self, name):
+        return self.call("GET", f"/groups/{_q(name)}")
+
+    def create_group(self, name, devices=None):
+        return self.call("POST", "/groups", body={"name": name, "devices": list(devices or [])})
+
+    def delete_group(self, name):
+        return self.call("DELETE", f"/groups/{_q(name)}")
+
+    def group_add(self, name, devices):
+        return self.call("POST", f"/groups/{_q(name)}/devices", body={"devices": list(devices)})
+
+    def group_remove(self, name, devices):
+        return self.call("DELETE", f"/groups/{_q(name)}/devices", {"devices": ",".join(devices)})
+
     # -- sets and shortcuts --------------------------------------------------------------
 
     def sets(self):
@@ -188,12 +208,14 @@ class Client:
     def _start(self, verb, **body):
         return self.call("POST", f"/jobs/{verb}", body={k: v for k, v in body.items() if v is not None})
 
-    def start_send(self, command, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None):
-        return self._start("send", command=command, devices=devices, tagged=tagged, region=region,
+    def start_send(self, command, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
+                   group=None):
+        return self._start("send", command=command, devices=devices, tagged=tagged, region=region, group=group,
                            dry_run=dry_run, confirm=confirm, wait_secs=wait_secs)
 
-    def start_run_set(self, name, arg=None, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None):
-        return self._start("run-set", set=name, arg=arg, devices=devices, tagged=tagged, region=region,
+    def start_run_set(self, name, arg=None, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
+                      group=None):
+        return self._start("run-set", set=name, arg=arg, devices=devices, tagged=tagged, region=region, group=group,
                            dry_run=dry_run, confirm=confirm, wait_secs=wait_secs)
 
     def start_discover(self, region, wait_secs=None, add=None):

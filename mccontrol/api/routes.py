@@ -394,6 +394,60 @@ def resolve_regions(ctx, _p, query, _b):
     return 200, {"regions": actions.regions_asked(query["text"], ctx.store)}
 
 
+# -- groups (RM-4) -----------------------------------------------------------------------
+
+def group_view(ctx, name):
+    members = ctx.store.group(name)
+    if members is None:
+        raise not_found(f"no group named {name.strip().lower()}")
+    by_node = {d["node"]: d for d in ctx.store.devices()}
+    return {"name": name.strip().lower(), "members": [{"node": n, "name": by_node[n]["name"] or n,
+                                                       "region": by_node[n].get("region") or ""} for n in members]}
+
+
+def list_groups(ctx, _p, _q, _b):
+    return 200, {"groups": [group_view(ctx, n) for n in ctx.store.groups()]}
+
+
+def get_group(ctx, params, _q, _b):
+    return 200, group_view(ctx, params["name"])
+
+
+def create_group(ctx, _p, _q, body):
+    name = _str(body, "name")
+    if not name:
+        raise bad("a group needs a name")
+    nodes = [d["node"] for d in devices_of(ctx, body.get("devices") or [])]
+    try:
+        ctx.store.create_group(name, nodes)
+    except _store.StoreError as exc:
+        if "already" in str(exc):
+            raise ApiError(409, "conflict", str(exc)) from None
+        raise
+    return 201, group_view(ctx, name)
+
+
+def delete_group(ctx, params, _q, _b):
+    group_view(ctx, params["name"])
+    ctx.store.delete_group(params["name"])
+    return 200, {"removed": params["name"].strip().lower()}
+
+
+def group_add(ctx, params, _q, body):
+    group_view(ctx, params["name"])
+    ctx.store.change_group(params["name"], add=[d["node"] for d in devices_of(ctx, body.get("devices"))])
+    return 200, group_view(ctx, params["name"])
+
+
+def group_remove(ctx, params, query, _b):
+    group_view(ctx, params["name"])
+    refs = [r for r in (query.get("devices") or "").split(",") if r.strip()]
+    if not refs:
+        raise bad("devices is required: names or node ids, separated by commas")
+    ctx.store.change_group(params["name"], remove=[d["node"] for d in devices_of(ctx, refs)])
+    return 200, group_view(ctx, params["name"])
+
+
 # -- sets and shortcuts ------------------------------------------------------------------
 
 def get_sets(ctx, _p, _q, _b):
@@ -496,6 +550,12 @@ TABLE = [
     ("POST", "/tags/invert", invert_tags),
     ("GET", "/regions", regions),
     ("GET", "/regions/resolve", resolve_regions),
+    ("GET", "/groups", list_groups),
+    ("POST", "/groups", create_group),
+    ("GET", "/groups/{name}", get_group),
+    ("DELETE", "/groups/{name}", delete_group),
+    ("POST", "/groups/{name}/devices", group_add),
+    ("DELETE", "/groups/{name}/devices", group_remove),
     ("GET", "/sets", get_sets),
     ("GET", "/sets/{name}", filled_set),
     ("PUT", "/sets/{name}", save_set),
