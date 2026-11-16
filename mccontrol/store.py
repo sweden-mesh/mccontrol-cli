@@ -2,7 +2,7 @@
 
     ~/.config/mccontrol/
         key.seed          the private signing seed, 64 hex, mode 0600; never printed
-        config.json       broker, region, defaults
+        config.json       brokers (the shared one, and any region's own), defaults
         devices.json      the devices you manage: name, node hex, notes, last seen
         history/<node>.jsonl   every command sent to that device and what came back
 
@@ -18,11 +18,14 @@ import stat
 
 from . import envelope
 
-# The configuration is the control broker and nothing else: the one that takes the signed
-# commands and carries the results back, with its own username and password. A region is a
-# property of each device, since one person may run repeaters in several.
+# The configuration is the control brokers and nothing else: the ones that take the signed
+# commands and carry the results back. A region is a property of each device, since one
+# person may run repeaters in several; `broker` is the shared broker every region uses unless
+# `brokers` names its own (RB-1): `{"VGR": "mqtt.meshcore-vgr.se"}`. Port, TLS and a password
+# login are the same for every broker.
 DEFAULT_CONFIG = {
     "broker": "mqtt-meshcore.louie.se",
+    "brokers": {},
     # The command plane is TLS on 8883: the broker's plugin refuses commands and registration
     # on the plain listener, where a token could be copied off the wire.
     "port": 8883,
@@ -66,7 +69,44 @@ def _migrate_broker(stored):
         if isinstance(record, dict) and record.get("broker") in FORMER_BROKERS:
             record["broker"] = DEFAULT_CONFIG["broker"]
             changed = True
+    # A region pointed at a former name of the shared broker, and a registration there.
+    brokers = stored.get("brokers")
+    if isinstance(brokers, dict):
+        for region, host in brokers.items():
+            if host in FORMER_BROKERS:
+                brokers[region] = DEFAULT_CONFIG["broker"]
+                changed = True
+    regs = stored.get("registrations")
+    if isinstance(regs, dict):
+        for host in [h for h in regs if h in FORMER_BROKERS]:
+            at = regs.pop(host)
+            regs[DEFAULT_CONFIG["broker"]] = max(at, regs.get(DEFAULT_CONFIG["broker"]) or at)
+            changed = True
+    # The one registration kept before RB-1 joins the per-broker record; it stays where it
+    # was too, for an older mccontrol reading the same directory.
+    reg = stored.get("registered")
+    if isinstance(reg, dict) and reg.get("broker") and reg.get("at"):
+        regs = stored.setdefault("registrations", {})
+        if not isinstance(regs, dict):
+            regs = stored["registrations"] = {}
+        if (regs.get(reg["broker"]) or "") < reg["at"]:
+            regs[reg["broker"]] = reg["at"]
+            changed = True
     return changed
+
+
+def valid_region(region):
+    """An IATA code as the topics carry it: 2 to 8 letters or digits, upper case here."""
+    region = (region or "").strip().upper()
+    return region if 2 <= len(region) <= 8 and region.isalnum() and region.isascii() else None
+
+
+def valid_host(host):
+    """A broker's host name: letters, digits, hyphens and dots, at least one dot."""
+    import re
+    host = (host or "").strip().lower()
+    label = r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+    return host if re.fullmatch(rf"{label}(\.{label})+", host) and len(host) <= 253 else None
 
 
 class StoreError(Exception):
@@ -176,12 +216,65 @@ class Store:
         sets[name] = []                   # an empty list is a removed set, the shipped one included
         self.save_config(sets=sets)
 
-    def registration(self):
-        """`{broker, at}` when this key was registered with a broker, else None."""
-        return self.config().get("registered") or None
+    # -- brokers, per region (RB-1) -----------------------------------------------------
+
+    def broker_for(self, region, config=None):
+        """The broker a region's devices use: its own when `brokers` names one, else the
+        shared broker (`broker`)."""
+        config = config or self.config()
+        own = (config.get("brokers") or {}).get((region or "").strip().upper())
+        return own or config["broker"]
+
+    def config_for(self, region, config=None):
+        """The configuration to reach `region` with: its broker as `broker`, so the login
+        token is signed for that broker's name, and the region itself."""
+        config = config or self.config()
+        return dict(config, broker=self.broker_for(region, config), region=(region or "").strip().upper())
+
+    def brokers(self):
+        """Every broker in use, each once: the shared one first, then each region's own."""
+        config = self.config()
+        return list(dict.fromkeys([config["broker"]] + list((config.get("brokers") or {}).values())))
+
+    def set_region_broker(self, region, host):
+        """Point `region` at its own broker, or with an empty host (or the shared broker's
+        name) back at the shared one. A device keeps its region either way: moving a region
+        between brokers loses no device, only the registration with the new broker is new."""
+        code = valid_region(region)
+        if not code:
+            raise StoreError("a region is its IATA code: 2 to 8 letters or digits, e.g. VGR")
+        brokers = dict(self.config().get("brokers") or {})
+        host = (host or "").strip()
+        if host and not valid_host(host):
+            raise StoreError(f"{host!r} is not a host name, e.g. mqtt.meshcore-vgr.se")
+        host = valid_host(host) if host else ""
+        if not host or host == self.config()["broker"]:
+            brokers.pop(code, None)
+        else:
+            brokers[code] = host
+        return self.save_config(brokers=brokers)["brokers"]
+
+    def registration(self, broker=None):
+        """`{broker, at}` when this key is registered with `broker` (the shared broker when
+        not given), else None."""
+        config = self.config()
+        broker = broker or config["broker"]
+        at = (config.get("registrations") or {}).get(broker)
+        return {"broker": broker, "at": at} if at else None
+
+    def registrations(self):
+        """`{broker: at or None}` for every broker in use: what the key screens show."""
+        regs = self.config().get("registrations") or {}
+        return {b: regs.get(b) for b in self.brokers()}
 
     def remember_registration(self, broker):
-        self.save_config(registered={"broker": broker, "at": _now()})
+        config = self.config()
+        regs = dict(config.get("registrations") or {})
+        regs[broker] = _now()
+        changes = {"registrations": regs}
+        if broker == config["broker"]:
+            changes["registered"] = {"broker": broker, "at": regs[broker]}   # read by mccontrol before RB-1
+        self.save_config(**changes)
 
     def tested(self):
         """`{broker, port, ok, at}` of the last connection test, else None."""
@@ -229,8 +322,8 @@ class Store:
         except envelope.NodeIdError as exc:
             raise StoreError(str(exc)) from None
         name = name.strip()          # empty is allowed: the id stands in until you name it
-        region = (region or "").strip().upper()
-        if not (2 <= len(region) <= 8 and region.isalnum()):
+        region = valid_region(region)
+        if not region:
             raise StoreError("a device needs its region: the IATA code its observers use, e.g. JKG")
         devices = self.devices()
         if name and any(d["name"].lower() == name.lower() for d in devices):

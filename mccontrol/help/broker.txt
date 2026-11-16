@@ -1,13 +1,19 @@
 The control broker
 
-Commands and results travel through one MQTT broker, the one each
-repeater's mqtt.cmd.slot points at. The configuration holds its host,
-port, username, password and how long to wait for answers. The broker
+Commands and results travel through an MQTT broker, the one each
+repeater's mqtt.cmd.slot points at. The shared broker serves every
+region; a region may run its own, and then the configuration names it
+for that region ("mccontrol config --region-broker VGR=<host>"). Each
+device is reached through its region's broker, and each device shows
+which one. The configuration also holds the port, username, password
+and how long to wait for answers, the same for every broker. Your key is
+registered once per broker. [[ownregion]] has the steps. The broker
 test connects with those, subscribes to a test topic, publishes to it
 and checks the broker delivers it back; each step is reported and the
 first failure named ("Not authorized" is the broker rejecting the
 username or password). "mccontrol config" and "mccontrol test" do the
-same; where they are in your interface is in [[keys]].
+same ("mccontrol test --region VGR" tests a region's own broker); where
+they are in your interface is in [[keys]].
 
 This is not the broker the repeaters' statistics go to; those credentials
 are not used here.

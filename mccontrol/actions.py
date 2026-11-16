@@ -120,7 +120,7 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
         payload = (envelope.build_v2(store.seed(), topic, 0, command, v2_key) if v2_key
                    else envelope.build(store.seed(), topic, 0, command))
         return topic, payload, {}, [f"would publish to {topic}", payload, "not sent (dry run)"]
-    payload, answers = transport.send(dict(config, region=region), store.seed(), topic, command,
+    payload, answers = transport.send(store.config_for(region, config), store.seed(), topic, command,
                                       nodes_to_hear=hear, keys=keys, v2_key=v2_key,
                                       wait_secs=wait_secs or config.get("wait_secs", 20),
                                       progress=progress, script=script)
@@ -279,14 +279,30 @@ def refresh_names(store, devices, wait_secs=None, progress=None, script=None):
     return named, versioned, lines
 
 
-def register(store):
-    """Register the signing key with the control broker, once: `(ok, detail)`; remembered
-    on success so the Keys dialog and the connection test can say so."""
+def register(store, broker=None):
+    """Register the signing key with one control broker (the shared one when not given),
+    once: `(ok, detail)`; remembered per broker on success so the key screens and the
+    connection test can say so. The login token is signed for that broker's name."""
     config = store.config()
-    ok, detail = transport.register(config, store.seed(), wait_secs=min(10, config.get("wait_secs", 20)))
+    broker = broker or config["broker"]
+    ok, detail = transport.register(dict(config, broker=broker), store.seed(),
+                                    wait_secs=min(10, config.get("wait_secs", 20)))
     if ok:
-        store.remember_registration(config["broker"])
+        store.remember_registration(broker)
     return ok, detail
+
+
+def register_all(store, brokers=None):
+    """Register with each broker in use (`store.brokers()`), or with those given:
+    `[(broker, ok, detail)]`. A broker that refuses or is silent does not stop the next."""
+    out = []
+    for broker in brokers or store.brokers():
+        try:
+            ok, detail = register(store, broker)
+        except transport.BrokerError as exc:
+            ok, detail = False, str(exc)
+        out.append((broker, ok, detail))
+    return out
 
 
 def regions_asked(text, store):
@@ -315,7 +331,7 @@ def discover(store, region, wait_secs=None, progress=None, script=None):
             found += discover(store, one, wait_secs, progress, script)
         return found
     region = regions[0]
-    config = store.config()
+    config = store.config_for(region)       # the region's own broker, or the shared one
     known = {d["node"]: d["name"] for d in store.devices()}
     found = transport.discover(config, store.seed(), region,
                                wait_secs=wait_secs or config.get("wait_secs", 20), progress=progress, script=script)
@@ -330,11 +346,12 @@ def discover(store, region, wait_secs=None, progress=None, script=None):
         entry["outcome"] = outcome_line(envelope.Result(entry["node"], 0, entry["code"],
                                                         transport.DISCOVERY_COMMAND, entry["reply"]))
         entry["name"] = ""
+        entry["broker"] = config["broker"]
     if found:
         # A second read for the names, which only firmware that admits `get name` answers;
         # the rest stay unnamed and are named by hand.
         try:
-            _p, names = transport.send(dict(config, region=region.upper()), store.seed(),
+            _p, names = transport.send(config, store.seed(),
                                        envelope.command_topic(region), "get name",
                                        nodes_to_hear=[e["node"] for e in found],
                                        keys={e["node"]: e["key"] for e in found if e.get("key")},

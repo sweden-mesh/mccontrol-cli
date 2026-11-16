@@ -318,7 +318,8 @@ def start_discover(ctx, _p, _q, body):
             for e in part:
                 e = {"node": e["node"], "region": e["region"], "code": e["code"], "reply": e["reply"] or "",
                      "key": e.get("key"), "verified": e.get("verified"), "known_as": e.get("known_as"),
-                     "outcome": e["outcome"], "name": e.get("name") or "", "added": False}
+                     "outcome": e["outcome"], "name": e.get("name") or "", "added": False,
+                     "broker": e.get("broker") or store.broker_for(e["region"])}
                 if add and e["known_as"] is None and store.device(e["node"]) is None:
                     actions.adopt(store, e, e["name"])
                     e["added"] = True
@@ -408,29 +409,62 @@ def start_statistics(ctx, _p, _q, body):
     return 202, ctx.jobs.start("statistics", work).snapshot()
 
 
-def start_test(ctx, _p, _q, _b):
+def _broker_asked(ctx, body):
+    """The broker a test or a registration is for: `broker` by name, or `region`'s; None
+    when neither is given."""
+    broker, region = body.get("broker"), body.get("region")
+    if broker is not None and not isinstance(broker, str) or region is not None and not isinstance(region, str):
+        raise bad("broker and region are strings")
+    if broker and region:
+        raise bad("give broker or region, not both")
+    if region:
+        code = _store.valid_region(region)
+        if not code:
+            raise bad("region is its IATA code, e.g. VGR")
+        return ctx.store.broker_for(code)
+    if broker:
+        if broker not in ctx.store.brokers():
+            raise bad(f"{broker} is not a broker in use; they are {', '.join(ctx.store.brokers())}")
+        return broker
+    return None
+
+
+def start_test(ctx, _p, _q, body):
     store = ctx.store
+    broker = _broker_asked(ctx, body or {})
 
     def work(job):
-        job.update(text=f"connecting to {store.config()['broker']}")
         config = store.config()
+        config["broker"] = broker or config["broker"]
+        job.update(text=f"connecting to {config['broker']}")
         steps = transport.test_connection(config, seed_hex=store.seed() if store.has_key() else None)
         store.remember_test(config["broker"], config["port"], all(ok for _s, ok, _d in steps))   # kept: STATUS says it
         return {"steps": [{"step": s, "ok": ok, "detail": detail} for s, ok, detail in steps],
-                "key": store.public_key() if store.has_key() else None, "registered": store.registration(),
+                "key": store.public_key() if store.has_key() else None,
+                "broker": config["broker"], "registered": store.registration(config["broker"]),
                 "ok": all(ok for _s, ok, _d in steps)}
 
     return 202, ctx.jobs.start("test", work).snapshot()
 
 
-def start_register(ctx, _p, _q, _b):
+def start_register(ctx, _p, _q, body):
     ctx.store.seed()
     store = ctx.store
+    broker = _broker_asked(ctx, body or {})
 
     def work(job):
-        job.update(text=f"publishing the public key to {store.config()['broker']}")
-        ok, detail = actions.register(store)
-        return {"ok": ok, "detail": detail, "broker": store.config()["broker"]}
+        brokers = [broker] if broker else store.brokers()
+        job.update(text=f"publishing the public key to {', '.join(brokers)}", steps=len(brokers))
+        results = []
+        for i, b in enumerate(brokers):
+            job.update(step=i, text=f"publishing the public key to {b}")
+            # One broker: its failure is the job's, as before RB-1. Several: each is tried.
+            ok, detail = actions.register(store, b) if len(brokers) == 1 else actions.register_all(store, [b])[0][1:]
+            results.append({"broker": b, "ok": ok, "detail": detail})
+        one = len(results) == 1
+        return {"ok": all(r["ok"] for r in results),
+                "detail": results[0]["detail"] if one else "; ".join(f"{r['broker']}: {r['detail']}" for r in results),
+                "broker": ", ".join(r["broker"] for r in results), "results": results}
 
     return 202, ctx.jobs.start("register", work).snapshot()
 

@@ -1,0 +1,76 @@
+Your own region
+
+Every region can use the shared broker, mqtt-meshcore.louie.se. It serves
+every IATA: keys register there, commands fan out there, and each
+region's nodes are told apart by the IATA in their topics. A region can
+also run its own broker (mcbroker's DEPLOY.md is the guide). Either way
+it is the same tool and the same key.
+
+Two roles
+
+  The region operator runs the region's broker, or chooses to use the
+  shared one. On their own broker they keep the host, the certificate,
+  the reader accounts for maps and Beacon, and the revoked and approved
+  key files. They tell the region the broker's host name.
+
+  A repeater owner makes a key, registers it with the region's broker,
+  provisions their own repeaters over serial and adds them here. An
+  owner commands only the repeaters that hold their public key; no
+  operator can command someone else's repeater.
+
+1. Make a key, once:
+
+  mccontrol keygen
+
+2. Point the region at its broker. Skip this for the shared broker,
+which is the default:
+
+  mccontrol config --region-broker VGR=mqtt.meshcore-vgr.se
+
+A region with no entry uses the shared broker ("mccontrol config
+--broker" changes that one). "VGR=" with no host moves the region back
+to the shared broker. Your devices keep their region either way, so
+moving a region loses no device.
+
+3. Register your key with each broker in use, once per broker:
+
+  mccontrol register              (every broker in use)
+  mccontrol register --region VGR (that region's broker only)
+  mccontrol test --region VGR     (connect, sign in, publish, receive)
+
+4. Provision each repeater over its serial console:
+
+  set mqtt.cmd.pubkey <your 64-hex public key>   ("mccontrol key")
+
+then the command slot. For the shared broker:
+
+  set mqtt.cmd on
+
+For a region's own broker, once firmware lou-18 ships:
+
+  set mqtt.cmd on mqtt.meshcore-vgr.se
+
+Until then, use a custom slot (here slot 3; any free one from 2 to 6):
+
+  set mqtt3.preset custom
+  set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883
+  set mqtt3.audience mqtt.meshcore-vgr.se
+  set mqtt3.filter all
+  set mqtt.cmd.slot 3
+  set mqtt.cmd on
+
+Then reboot. The node's region comes from "set mqtt.iata VGR". It must
+match the region you give the device here.
+
+5. Add the devices:
+
+  mccontrol discover VGR --add    (every node in VGR that holds your key)
+  mccontrol add <name> <node> VGR (or one by hand)
+
+Each device shows the broker it is reached through. Discovery and
+broadcasts go to the region's broker and hear only that region's
+topics, so several regions can share one broker.
+
+See [[broker]] for the brokers and [[signing]] for the key.
+
+Back to [[index]].

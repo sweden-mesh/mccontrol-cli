@@ -126,8 +126,12 @@ def send(config, seed_hex, topic, command, nodes_to_hear=(), wait_secs=20.0, ttl
     lock = threading.Lock()
     all_in = threading.Event()
     wanted = set(nodes_to_hear)
+    own = f"{envelope.TOPIC_PREFIX}{config['region'].upper()}/"
 
     def on_message(_c, _u, msg):
+        # Several regions may share one broker: a result under another IATA is not an answer.
+        if not msg.topic.startswith(own):
+            return
         leaf = envelope.node_from_result_topic(msg.topic)
         node = leaf[:envelope.NODE_HEX_LEN] if leaf else None
         # the key to verify an r2 with: the topic's own leaf when it is the whole key
@@ -186,9 +190,11 @@ def discover(config, seed_hex, region, wait_secs=10.0, client_factory=None, coun
                 for n, r in sorted(faked.items())]
     found = {}
     lock = threading.Lock()
+    own = f"{envelope.TOPIC_PREFIX}{region.upper()}/"
 
     def on_message(_c, _u, msg):
-        leaf = envelope.node_from_result_topic(msg.topic)
+        # Several regions may share one broker: only this region's results are its answers.
+        leaf = envelope.node_from_result_topic(msg.topic) if msg.topic.startswith(own) else None
         if not leaf:
             return
         node = leaf[:envelope.NODE_HEX_LEN]

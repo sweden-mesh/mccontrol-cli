@@ -53,6 +53,7 @@ def view(ctx, d, columns=None, width=100):
         out.setdefault(k, None)
     out.setdefault("notes", "")
     out["tagged"] = d["node"] in ctx.tags
+    out["broker"] = ctx.store.broker_for(d.get("region"))       # the region's own, or the shared one
     out["stale"] = directory.stale(d)
     out["cells"] = directory.cells(d)
     out["row"] = directory.row(d, width, columns=columns).rstrip()
@@ -123,7 +124,7 @@ def docs_page(_ctx, _p, _q, _b):
 
 # -- configuration and keys --------------------------------------------------------------
 
-CONFIG_TYPES = {"broker": str, "port": int, "username": str, "password": str, "tls": bool,
+CONFIG_TYPES = {"broker": str, "brokers": dict, "port": int, "username": str, "password": str, "tls": bool,
                 "ttl_secs": int, "wait_secs": (int, float), "beacon_url": str, "columns": list, "ui": str, "ui_settings": dict}
 
 
@@ -140,10 +141,32 @@ def set_config(ctx, _p, _q, body):
             raise bad(f"{key} has the wrong type")
     if "columns" in body:
         body = dict(body, columns=directory.chosen(body["columns"]))
+    if "brokers" in body:
+        body = dict(body, brokers=region_brokers(ctx.store.config(), body["brokers"]))
     if "ui_settings" in body:
         body = dict(body, ui_settings=merged_ui_settings(ctx.store.config().get("ui_settings", {}), body["ui_settings"]))
     ctx.store.save_config(**body)
     return 200, public_config(ctx.store)
+
+
+def region_brokers(config, change):
+    """The region -> broker map with `change` merged in: a region given a host gets that
+    broker, one given null, "" or the shared broker's name goes back to the shared broker."""
+    out = dict(config.get("brokers") or {})
+    for region, host in change.items():
+        code = _store.valid_region(region)
+        if not code:
+            raise bad(f"brokers: {region!r} is not a region; a region is its IATA code, e.g. VGR")
+        if host is not None and not isinstance(host, str):
+            raise bad(f"brokers.{code} has the wrong type: it is a host name, or null")
+        if host and not _store.valid_host(host):
+            raise bad(f"brokers.{code}: {host!r} is not a host name, e.g. mqtt.meshcore-vgr.se")
+        host = _store.valid_host(host) if host else None
+        if not host or host == config["broker"]:
+            out.pop(code, None)
+        else:
+            out[code] = host
+    return out
 
 
 def merged_ui_settings(stored, change):
@@ -168,6 +191,7 @@ def key_view(store):
     public = store.public_key() if store.has_key() else None
     return {"exists": store.has_key(), "public": public, "path": str(store.key_path),
             "registered": store.registration(),
+            "registrations": [{"broker": b, "at": at} for b, at in store.registrations().items()],
             "provision": [f"set mqtt.cmd.pubkey {public}", "set mqtt.cmd on"] if public else []}
 
 
@@ -359,7 +383,9 @@ def invert_tags(ctx, _p, _q, _b):
 
 
 def regions(ctx, _p, _q, _b):
-    return 200, {"regions": ctx.store.regions()}
+    config = ctx.store.config()
+    return 200, {"regions": ctx.store.regions(),
+                 "brokers": {r: ctx.store.broker_for(r, config) for r in ctx.store.regions()}}
 
 
 def resolve_regions(ctx, _p, query, _b):

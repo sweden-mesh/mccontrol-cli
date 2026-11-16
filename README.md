@@ -79,7 +79,7 @@ its page; a fourth one is a directory more. Without a terminal each says so and 
 ```
 pip install git+https://github.com/sweden-mesh/mccontrol   # or `pip install .` in a clone
 mccontrol keygen                                  # once; prints the two serial commands
-mccontrol register                                # once; the broker then checks your commands
+mccontrol register                                # once per broker; the broker then checks your commands
 mccontrol test                                    # connect, sign in, subscribe, publish, receive
 mccontrol discover JKG --add                      # every node in JKG that accepts your key
 mccontrol                                         # the screens: Monolith, or the last --ui asked for
@@ -145,6 +145,57 @@ The node answers `OK - slot 3, mccontrol (mqtts://mqtt-meshcore.louie.se:8883), 
 apply`. A board without PSRAM runs two MQTT slots at once; with both analyzer uplinks up it
 says so and asks you to turn one off (`set mqtt2.preset none`) rather than doing it for you.
 Then `mccontrol register` once per key, so the broker checks your commands before they fan out.
+For a region with its own broker, see the next section.
+
+## Your own region
+
+Every region can use the shared broker, `mqtt-meshcore.louie.se`. It serves every IATA, keeps
+each region's counts and broadcast caps apart, and is the default: a region needs nothing
+configured to use it. A region may also run its own broker (mcbroker's `DEPLOY.md` is the
+guide), and can move between the two at any time without losing a device: a device belongs to
+a region, and a region points at a broker.
+
+**Who does what.** The *region operator* runs the region's broker (or decides to use the shared
+one), keeps its host, certificate, reader accounts and the revoked and approved key files, and
+tells the region the broker's host name. A *repeater owner* makes a key, registers it with that
+broker, provisions their own repeaters and adds them here. An owner commands only the repeaters
+that hold their public key; the broker stops forgeries and floods, it does not hand out access.
+
+1. **A key**, once: `mccontrol keygen` (`mccontrol key` prints the public half).
+2. **The region's broker**, only if it is not the shared one:
+
+   ```
+   mccontrol config --region-broker VGR=mqtt.meshcore-vgr.se   # VGR= moves it back to the shared broker
+   ```
+
+   A region with no entry uses `broker`, the shared broker. Port, TLS and a password login are
+   the same for every broker; the login token is signed for each broker's own name.
+3. **Register** once per broker: `mccontrol register` registers with every broker in use
+   (`--region VGR` for that one only); `mccontrol key` says where the key is registered, and
+   `mccontrol test --region VGR` connects, signs in, publishes and receives there.
+4. **Provision each repeater** over serial: `set mqtt.cmd.pubkey <your 64-hex public key>`, then
+   the command slot. For the shared broker that is `set mqtt.cmd on`. For a region's own broker,
+   once firmware lou-18 ships, `set mqtt.cmd on mqtt.meshcore-vgr.se`; until then a custom slot
+   (any free one from 2 to 6):
+
+   ```
+   set mqtt3.preset custom
+   set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883
+   set mqtt3.audience mqtt.meshcore-vgr.se
+   set mqtt3.filter all
+   set mqtt.cmd.slot 3
+   set mqtt.cmd on
+   reboot
+   ```
+
+   `set mqtt.iata VGR` sets the region the node's topics carry; it must be the device's region
+   here. The regional website's wizards print these lines from one setting.
+5. **Add the devices**: `mccontrol discover VGR --add`, or `mccontrol add <name> <node> VGR`.
+
+Each device shows the broker it is reached through: `mccontrol devices`, the API's `broker`
+field, and each interface's device view. Discovery and broadcasts go to the region's broker and
+listen only to that region's topics, so several regions can share one broker. `mccontrol help
+ownregion` has the same steps.
 
 ## Signing in
 
@@ -155,10 +206,12 @@ Nothing is handed out or typed; the key is the identity, and that is how the def
 `mqtt-meshcore.louie.se` knows who publishes. A login from the broker's password file sets its username
 and password, and those are used instead.
 
-## The configuration is the control broker
+## The configuration is the control brokers
 
-The only thing configured is the control broker: host (default `mqtt-meshcore.louie.se`, the broker a
-node's `mqtt.cmd.slot` points at), port, username, password and how long to wait for answers.
+The only thing configured is the control brokers: `broker`, the shared broker (default
+`mqtt-meshcore.louie.se`, the broker a node's `mqtt.cmd.slot` points at), `brokers`, each region's
+own broker by IATA (empty by default), and the port, username, password and how long to wait
+for answers, the same for every broker.
 The full feature set needs the broker to run the mcbroker Mosquitto plugin. A region belongs to
 a device, not to the configuration. A configuration that still names a former name of the default
 broker (`mqtt.meshcore-jkp.se`, `mqtt.louie.se`) is moved to the current one when it is read, so
@@ -167,7 +220,7 @@ the next login signs its token for the name the broker accepts.
 ```
 ~/.config/mccontrol/
     key.seed            your private seed, mode 600
-    config.json         the control broker and how long to wait
+    config.json         the control brokers, where the key is registered, how long to wait
     devices.json        your devices, each with its region
     history/<node>.jsonl
 ```

@@ -157,7 +157,8 @@ class App:
     def show_history(self, device):
         """The right panel follows the cursor: the device's history, newest first."""
         self.right_mode, self.right_node = "history", device["node"] if device else None
-        self.right.title = f"History: {(device.get('name') or device['node']) if device else '-'}"
+        self.right.title = (f"History: {device.get('name') or device['node']} via {device.get('broker') or '?'}"
+                            if device else "History: -")
         rows = []
         for line in reversed(self.client.history(device["node"], limit=200)["history"]) if device else []:
             out = self.said(line)
@@ -591,11 +592,16 @@ class App:
         if key["exists"]:
             public = key["public"]
             reg = key["registered"]
+            regs = key.get("registrations") or []
             body = ["Provision each repeater over its serial console with:", "",
                     f"  set mqtt.cmd.pubkey {public}", "  set mqtt.cmd on", "",
-                    f"The private seed is in {key['path']}", "and never leaves this machine inside anything but a signature.", "",
-                    (f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else
-                     "Not registered with the broker yet: it cannot check your commands before they fan out.")]
+                    f"The private seed is in {key['path']}", "and never leaves this machine inside anything but a signature.", ""]
+            if len(regs) > 1:           # a region with its own broker: one line per broker (RB-1)
+                body += [f"Registered with {r['broker']} on {r['at'][:10]}." if r["at"] else
+                         f"Not registered with {r['broker']} yet." for r in regs]
+            else:
+                body.append(f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else
+                            "Not registered with the broker yet: it cannot check your commands before they fan out.")
             d = Dialog("Signing key", body=body, width=min(92, self.screen.size[0] - 4),
                        buttons=[Button("OK", None, default=True), Button("Register", "register"), Button("Replace key", "replace")])
             choice = d.run(self.screen, self.draw)

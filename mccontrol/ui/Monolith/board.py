@@ -388,6 +388,7 @@ class Board:
         info = f"{d['node']}  {d['region']}  {d['cells']['ver'].strip() or 'ver ?'}"
         if fleet.get("battery_mv"):
             info += f"  {fleet['battery_mv'] / 1000:.2f} V"
+        info += f"  via {d.get('broker') or '?'}"
         self.put(y, x, info[:w], "bright")
         row = y + 1
         pts = self.points(d["node"])
@@ -1253,9 +1254,14 @@ class Board:
             self.toast("no signing key: : generate key", "alert")
             return
         reg = k["registered"]
+        regs = k.get("registrations") or []
         lines = ["Provision each repeater over its serial console with:", ""] + [f"  {line}" for line in k["provision"]] + [
-            "", f"The private seed is in {k['path']}", "and never leaves this machine inside anything but a signature.", "",
-            f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else "Not registered with the broker yet."]
+            "", f"The private seed is in {k['path']}", "and never leaves this machine inside anything but a signature.", ""]
+        if len(regs) > 1:               # a region with its own broker: one line per broker (RB-1)
+            lines += [f"Registered with {r['broker']} on {r['at'][:10]}." if r["at"] else
+                      f"Not registered with {r['broker']} yet." for r in regs]
+        else:
+            lines.append(f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else "Not registered with the broker yet.")
         lines += ["", "g generates a new key   r registers this one with the broker"]
         choice = self.sheet("Signing key", lines, keys="gr")
         if choice == "g":

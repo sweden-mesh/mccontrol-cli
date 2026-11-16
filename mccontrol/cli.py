@@ -3,7 +3,7 @@
     mccontrol                      the screens
     mccontrol keygen               make a signing key and print what to provision
     mccontrol key                  print the public key
-    mccontrol config [--broker host] [--username u] [--password p]
+    mccontrol config [--broker host] [--region-broker VGR=host] [--username u] [--password p]
     mccontrol add <name> <8-hex node> <region> [notes...]
     mccontrol devices
     mccontrol send <device> <command...>      (--dry-run to only sign)
@@ -11,7 +11,8 @@
     mccontrol regions <device>
     mccontrol history <device>
     mccontrol discover <region> [--add]   the nodes there that accept your key
-    mccontrol test                 connect, sign in, subscribe and publish on the control broker
+    mccontrol test [--region R]    connect, sign in, subscribe and publish on the control broker
+    mccontrol register             register your key with every broker in use (--region R: that one)
     mccontrol --api <url> ...      any of these through a running API instead of one of its own
 
 Every subcommand is a client of the API (`apiclient`): it starts one in-process for the
@@ -35,8 +36,11 @@ def build_parser():
     sub.add_parser("keygen", help="create the signing key").add_argument(
         "--force", action="store_true", help="replace an existing key (silences provisioned nodes)")
     sub.add_parser("key", help="print the public key to provision with 'set mqtt.cmd.pubkey'")
-    c = sub.add_parser("config", help="show or change the control broker")
-    for name in ("broker", "username", "password", "beacon-url"):
+    c = sub.add_parser("config", help="show or change the control brokers")
+    c.add_argument("--broker", help="the shared broker: every region without its own uses it")
+    c.add_argument("--region-broker", action="append", metavar="REGION=HOST",
+                   help="a region's own broker, e.g. VGR=mqtt.meshcore-vgr.se; REGION= puts it back on the shared one")
+    for name in ("username", "password", "beacon-url"):
         c.add_argument(f"--{name}")
     c.add_argument("--port", type=int)
     c.add_argument("--tls", choices=("on", "off"), help="TLS to the broker (the command plane is TLS on 8883)")
@@ -89,8 +93,10 @@ def build_parser():
     rd.add_argument("device")
     sc = sub.add_parser("shortcuts", help="list the Alt+1..9 shortcuts, or set one")
     sc.add_argument("--set", nargs=2, metavar=("N", "COMMAND"), help="put COMMAND on Alt+N ('' frees it)")
-    sub.add_parser("test", help="test the control broker: connect, sign in, subscribe, publish")
-    sub.add_parser("register", help="register your signing key with the broker, once; the broker then checks commands against it")
+    t = sub.add_parser("test", help="test the control broker: connect, sign in, subscribe, publish")
+    t.add_argument("--region", help="test this region's broker instead of the shared one")
+    rg = sub.add_parser("register", help="register your signing key with each broker in use, once; a broker then checks commands against it")
+    rg.add_argument("--region", help="only this region's broker")
     d = sub.add_parser("discover", help="find the nodes in a region that accept your key")
     d.add_argument("region", help="the IATA code, e.g. JKG; several with commas, or '*' for every region you have")
     d.add_argument("--add", action="store_true", help="remember every node not yet in your list")
@@ -172,19 +178,24 @@ def _key(api, _args):
     if not key["exists"]:
         raise ApiError("store", "no signing key yet: create one first", 0)
     print(key["public"])
-    reg = key["registered"]
-    if reg:
-        print(f"registered with {reg['broker']} on {reg['at'][:10]}")
+    several = len(key["registrations"]) > 1
+    for reg in key["registrations"]:
+        if reg["at"]:
+            print(f"registered with {reg['broker']} on {reg['at'][:10]}")
+        elif several:                             # one broker: silence says it, as before RB-1
+            print(f"not registered with {reg['broker']}: run 'mccontrol register'")
     return 0
 
 
-def _register(api, _args):
-    job = _job(api, api.start_register())
+def _register(api, args):
+    job = _job(api, api.start_register(region=args.region))
     if job is None:
         return 130
-    ok, detail = job["result"]["ok"], job["result"]["detail"]
-    print(f"{'registered' if ok else 'not registered'}: {detail}")
-    return 0 if ok else 1
+    results = job["result"]["results"]
+    for r in results:
+        print(f"{'registered' if r['ok'] else 'not registered'}"
+              + (f" with {r['broker']}" if len(results) > 1 else "") + f": {r['detail']}")
+    return 0 if job["result"]["ok"] else 1
 
 
 def _config(api, args):
@@ -193,6 +204,11 @@ def _config(api, args):
     changes["wait_secs"] = args.wait_secs
     changes["beacon_url"] = args.beacon_url
     changes["columns"] = args.columns.split(",") if args.columns else None
+    if args.region_broker:
+        pairs = [p.partition("=") for p in args.region_broker]
+        if any(not sep for _r, sep, _h in pairs):
+            raise ApiError("store", "--region-broker is REGION=HOST, or REGION= for the shared broker", 0)
+        changes["brokers"] = {r.strip(): (h.strip() or None) for r, _s, h in pairs}
     changes = {k: v for k, v in changes.items() if v is not None}
     config = api.set_config(**changes) if changes else api.config()
     for key, value in config.items():
@@ -205,6 +221,12 @@ def _config(api, args):
             continue
         if key == "columns":
             value = ",".join(value)
+        if key == "brokers":                      # each region's own; the rest use the shared broker
+            for region, host in sorted(value.items()):
+                print(f"{'broker ' + region:12} {host}")
+            continue
+        if key == "registrations":
+            continue                              # 'mccontrol key' says these, broker by broker
         print(f"{key:12} {value}")
         if key == "username":
             print(f"{'password':12} {'(set)' if config.get('password_set') else '(not set)'}")
@@ -223,8 +245,8 @@ def _devices(api, _args):
         print("no devices yet: mccontrol add <name> <node-hex>")
         return 0
     for d in rows:
-        print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {d.get('region', '?'):4}  last sent {d['last_sent'] or '-':20} "
-              f"{d['last_result'] or '':12} {d['notes']}")
+        print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {d.get('region', '?'):4}  via {d['broker']:24} "
+              f"last sent {d['last_sent'] or '-':20} {d['last_result'] or '':12} {d['notes']}")
     return 0
 
 
@@ -413,8 +435,8 @@ def _regions(api, args):
     return _send(api, args, command="region")
 
 
-def _test(api, _args):
-    job = _job(api, api.start_test())
+def _test(api, args):
+    job = _job(api, api.start_test(region=args.region))
     if job is None:
         return 130
     result = job["result"]
@@ -424,7 +446,8 @@ def _test(api, _args):
         print(f"ok   signing key                  public {result['key'][:16]}...")
         reg = result["registered"]
         print(f"{'ok  ' if reg else 'note'} registered with broker       "
-              + (f"{reg['broker']} on {reg['at'][:10]}" if reg else "not yet: run 'mccontrol register'"))
+              + (f"{reg['broker']} on {reg['at'][:10]}" if reg else
+                 f"not yet with {result['broker']}: run 'mccontrol register'"))
     else:
         print("FAIL signing key                  none: run 'mccontrol keygen'")
     return 0 if result["ok"] else 1
@@ -441,6 +464,7 @@ def _discover(api, args):
     for e in found:
         mark = f"known as {e['known_as']}" if e["known_as"] else ("added" if args.add else "")
         print(f"{e['node'][:8]}  {e['region']:4}  {e['outcome'][:40]:40} {mark}")
+    print(f"via {', '.join(dict.fromkeys(e['broker'] for e in found))}")
     return 0
 
 

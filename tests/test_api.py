@@ -398,7 +398,8 @@ def test_a_job_without_a_key_is_refused_at_once(api):
     status, body = call(url, "POST", "/jobs/send", {"command": "region", "devices": ["gisebo"]})
     assert status == 400 and body["error"]["code"] == "store" and "no signing key" in body["error"]["message"]
     assert call(url, "GET", "/key")[1] == {"exists": False, "public": None, "path": str(store.key_path),
-                                          "registered": None, "provision": []}
+                                          "registered": None, "provision": [],
+                                          "registrations": [{"broker": store.config()["broker"], "at": None}]}
 
 
 def test_nothing_in_the_api_imports_curses_and_the_document_ships_with_the_package():

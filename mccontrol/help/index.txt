@@ -26,5 +26,6 @@ Reference
   [[signing]]     your key, provisioning a repeater, what the signature covers
   [[assurance]]   can a command be forged, altered or replayed? what is not covered
   [[broker]]      the control broker, its credentials, the connection test
+  [[ownregion]]   your own region: the shared broker or the region's own
   [[protocol]]    the envelope on the wire, for the curious
   [[cli]]         the same work from the command line

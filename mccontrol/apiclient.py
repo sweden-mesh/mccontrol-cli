@@ -208,11 +208,11 @@ class Client:
     def start_statistics(self, device, range=None, interval=None, live=None):
         return self._start("statistics", device=device, range=range, interval=interval, live=live)
 
-    def start_test(self):
-        return self._start("test")
+    def start_test(self, broker=None, region=None):
+        return self._start("test", broker=broker, region=region)
 
-    def start_register(self):
-        return self._start("register")
+    def start_register(self, broker=None, region=None):
+        return self._start("register", broker=broker, region=region)
 
     def wait_job(self, job_id, on_progress=None, poll=0.2, timeout=None):
         """Poll a job until it is no longer running and return its record.

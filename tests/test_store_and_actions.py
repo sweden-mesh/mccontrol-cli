@@ -262,7 +262,7 @@ def test_the_connection_test_reports_each_step_and_stops_at_the_first_failure(mo
 def test_the_configuration_holds_only_the_control_broker(store):
     # beacon_url is a read-only HTTP service with no credentials, not a second broker; the
     # observer feed and its username and password never appear here.
-    assert set(store.config()) == {"broker", "port", "tls", "username", "password", "ttl_secs", "wait_secs", "beacon_url", "columns"}
+    assert set(store.config()) == {"broker", "brokers", "port", "tls", "username", "password", "ttl_secs", "wait_secs", "beacon_url", "columns"}
     # the command plane is TLS on 8883: the plugin refuses commands on the plain listener
     assert (store.config()["port"], store.config()["tls"]) == (8883, True)
 

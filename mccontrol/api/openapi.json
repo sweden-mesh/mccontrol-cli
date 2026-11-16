@@ -1447,7 +1447,7 @@
   "/jobs/test": {
    "post": {
     "operationId": "start_test",
-    "summary": "Test the control broker: connect, sign in, subscribe, publish, receive",
+    "summary": "Test a control broker: connect, sign in, subscribe, publish, receive",
     "responses": {
      "202": {
       "description": "Accepted: the job is running",
@@ -1468,7 +1468,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/Empty"
+        "$ref": "#/components/schemas/BrokerChoice"
        }
       }
      }
@@ -1481,7 +1481,7 @@
   "/jobs/register": {
    "post": {
     "operationId": "start_register",
-    "summary": "Register the signing key with the control broker",
+    "summary": "Register the signing key with each broker in use, or with one",
     "responses": {
      "202": {
       "description": "Accepted: the job is running",
@@ -1502,7 +1502,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/Empty"
+        "$ref": "#/components/schemas/BrokerChoice"
        }
       }
      }
@@ -1598,7 +1598,8 @@
     "type": "object",
     "properties": {
      "broker": {
-      "type": "string"
+      "type": "string",
+      "description": "the shared broker: every region without its own in `brokers` uses it"
      },
      "port": {
       "type": "integer"
@@ -1684,6 +1685,23 @@
        "Monolith": {
         "palette": "green"
        }
+      }
+     },
+     "brokers": {
+      "type": "object",
+      "description": "each region's own broker, by IATA code (RB-1); a region not named here uses `broker`, the shared broker",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "example": {
+       "VGR": "mqtt.meshcore-vgr.se"
+      }
+     },
+     "registrations": {
+      "type": "object",
+      "description": "when the key was registered with each broker, by host name",
+      "additionalProperties": {
+       "type": "string"
       }
      }
     },
@@ -1774,6 +1792,18 @@
         "old": null
        }
       }
+     },
+     "brokers": {
+      "type": "object",
+      "description": "merged into the region -> broker map: a region given a host name uses that broker; one given null, \"\" or the shared broker's name goes back to the shared broker",
+      "additionalProperties": {
+       "type": "string",
+       "nullable": true
+      },
+      "example": {
+       "VGR": "mqtt.meshcore-vgr.se",
+       "GOT": null
+      }
      }
     },
     "description": "Only the fields given change; an unknown field is a 400.",
@@ -1818,7 +1848,8 @@
        {
         "$ref": "#/components/schemas/Registration"
        }
-      ]
+      ],
+      "description": "the registration with the shared broker, as before RB-1"
      },
      "provision": {
       "type": "array",
@@ -1826,6 +1857,26 @@
        "type": "string"
       },
       "description": "the two serial lines that provision a repeater"
+     },
+     "registrations": {
+      "type": "array",
+      "description": "every broker in use, the shared one first: when the key was registered there, or null",
+      "items": {
+       "type": "object",
+       "properties": {
+        "broker": {
+         "type": "string"
+        },
+        "at": {
+         "type": "string",
+         "nullable": true
+        }
+       },
+       "required": [
+        "broker",
+        "at"
+       ]
+      }
      }
     },
     "example": {
@@ -1836,6 +1887,12 @@
      "provision": [
       "set mqtt.cmd.pubkey abababababababababababababababababababababababababababababababab",
       "set mqtt.cmd on"
+     ],
+     "registrations": [
+      {
+       "broker": "mqtt-meshcore.louie.se",
+       "at": null
+      }
      ]
     },
     "required": [
@@ -1843,7 +1900,8 @@
      "public",
      "path",
      "registered",
-     "provision"
+     "provision",
+     "registrations"
     ]
    },
    "KeyCreate": {
@@ -1975,6 +2033,11 @@
      "row": {
       "type": "string",
       "description": "the directory row laid out to the asked width"
+     },
+     "broker": {
+      "type": "string",
+      "description": "the broker this device is reached through: its region's own, or the shared broker",
+      "example": "mqtt-meshcore.louie.se"
      }
     },
     "example": {
@@ -2000,7 +2063,8 @@
       "ver": "            ",
       "result": "ok"
      },
-     "row": "Gisebo             4AC61A7F JKG  2 h ok"
+     "row": "Gisebo             4AC61A7F JKG  2 h ok",
+     "broker": "mqtt-meshcore.louie.se"
     },
     "required": [
      "name",
@@ -2010,7 +2074,8 @@
      "tagged",
      "stale",
      "cells",
-     "row"
+     "row",
+     "broker"
     ]
    },
    "DeviceList": {
@@ -2635,13 +2700,24 @@
       "items": {
        "type": "string"
       }
+     },
+     "brokers": {
+      "type": "object",
+      "description": "GET /regions only: the broker each region's devices use",
+      "additionalProperties": {
+       "type": "string"
+      }
      }
     },
     "example": {
      "regions": [
       "JKG",
       "GOT"
-     ]
+     ],
+     "brokers": {
+      "JKG": "mqtt-meshcore.louie.se",
+      "GOT": "mqtt-meshcore.louie.se"
+     }
     },
     "required": [
      "regions"
@@ -3339,6 +3415,10 @@
      },
      "added": {
       "type": "boolean"
+     },
+     "broker": {
+      "type": "string",
+      "description": "the broker the region was asked on"
      }
     },
     "required": [
@@ -3351,7 +3431,8 @@
      "known_as",
      "outcome",
      "name",
-     "added"
+     "added",
+     "broker"
     ]
    },
    "DiscoverResult": {
@@ -3568,17 +3649,23 @@
        {
         "$ref": "#/components/schemas/Registration"
        }
-      ]
+      ],
+      "description": "the registration with the broker tested"
      },
      "ok": {
       "type": "boolean"
+     },
+     "broker": {
+      "type": "string",
+      "description": "the broker tested"
      }
     },
     "required": [
      "steps",
      "key",
      "registered",
-     "ok"
+     "ok",
+     "broker"
     ]
    },
    "RegisterResult": {
@@ -3591,13 +3678,38 @@
       "type": "string"
      },
      "broker": {
-      "type": "string"
+      "type": "string",
+      "description": "the broker or brokers registered with, comma-separated"
+     },
+     "results": {
+      "type": "array",
+      "description": "one per broker, in the order tried",
+      "items": {
+       "type": "object",
+       "properties": {
+        "broker": {
+         "type": "string"
+        },
+        "ok": {
+         "type": "boolean"
+        },
+        "detail": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "broker",
+        "ok",
+        "detail"
+       ]
+      }
      }
     },
     "required": [
      "ok",
      "detail",
-     "broker"
+     "broker",
+     "results"
     ]
    },
    "Build": {
@@ -3639,6 +3751,18 @@
     "required": [
      "command"
     ]
+   },
+   "BrokerChoice": {
+    "type": "object",
+    "description": "which broker: by host name (one in use), or the one a region uses; neither means the shared broker for a test and every broker in use for a registration",
+    "properties": {
+     "broker": {
+      "type": "string"
+     },
+     "region": {
+      "type": "string"
+     }
+    }
    }
   },
   "responses": {

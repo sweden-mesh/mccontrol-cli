@@ -14,8 +14,9 @@ slot (3-6), points it at the default broker mqtt-meshcore.louie.se with the
 built-in "mccontrol" preset, and says "reboot to apply". A board without
 PSRAM runs two slots at once; if both are its analyzer uplinks, the node
 says so and asks you to turn one off (set mqtt2.preset none) -- it never
-does that for you. A slot for a different command broker is set by
-hand (set mqttN.preset custom, server, audience; set mqtt.cmd.slot N).
+does that for you. A slot for a region's own command broker is set by
+hand (set mqttN.preset custom, server, audience; set mqtt.cmd.slot N);
+[[ownregion]] has the lines.
 
 Each interface shows that command on one line, creates a key when there
 is none, imports an existing seed, and replaces the key -- which
@@ -32,6 +33,7 @@ register") publishes your public key to the broker once, signed by the
 key itself; from then on the broker checks every command against the
 registered keys before it reaches any node, and a login that keeps
 sending badly signed commands is locked out for 48 hours after five in a
-day. Register once per key, never per device.
+day. Register once per key and broker, never per device: with a region
+on its own broker, registering covers every broker in use.
 
 See [[protocol]] for what the signature covers.

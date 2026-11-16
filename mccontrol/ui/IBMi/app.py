@@ -324,6 +324,7 @@ class App:
             cells = d.get("cells") or {}
             lst.head = [f"Name . . . :  {(d.get('name') or '(unnamed)')[:24]:24}  Node . . . . :  {d['node']}",
                         f"Region . . :  {(d.get('region') or '?'):24}  Version  . . :  {(d.get('ver') or '-')[:30]}",
+                        f"Broker . . :  {d.get('broker') or '?'}",
                         f"Last sent  :  {(d.get('last_sent') or '-'):24}  Last result  :  {d.get('last_result') or '-'}",
                         f"Battery  . :  {(cells.get('batt') or '-').strip() or '-':24}  Seen . . . . :  "
                         f"{fleet.get('seen') or '-'}{'   (nothing heard for 7 days)' if d.get('stale') else ''}",
@@ -783,9 +784,14 @@ class App:
                 lines = ["Provision each repeater over its serial console with:", ""] + [
                     "  " + l for l in fmt.pubkey_lines(k["public"], w)] + [
                     "", f"The private seed is in {k.get('path')}",
-                    "and never leaves this machine inside anything but a signature.", "",
-                    (f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else
-                     "Not registered with the broker yet: until then it cannot check your commands.")]
+                    "and never leaves this machine inside anything but a signature.", ""]
+                regs = k.get("registrations") or []
+                if len(regs) > 1:       # a region with its own broker: one line per broker (RB-1)
+                    lines += [f"Registered with {r['broker']} on {r['at'][:10]}." if r["at"] else
+                              f"Not registered with {r['broker']} yet." for r in regs]
+                else:
+                    lines.append(f"Registered with {reg['broker']} on {reg['at'][:10]}." if reg else
+                                 "Not registered with the broker yet: until then it cannot check your commands.")
                 choices = ["1. Register with the broker", "2. Replace the key (every repeater provisioned with it stops listening)"]
             else:
                 lines = ["No signing key yet."]
