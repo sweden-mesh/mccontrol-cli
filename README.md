@@ -272,3 +272,11 @@ every function key, option and verb pressed once, on an 80x24 and a wider termin
 
 `python scripts/screenshots.py` remakes `docs/screenshots/` from an invented fleet (it needs
 headless Chromium; `--only <name>` for one picture, `--keep-html` to keep the pages it renders).
+
+## The web app
+
+`web/` is mccontrol in the browser, being built: a static page with the key in the browser,
+no build step. Its conventions, layout and how to run it are in [web/README.md](web/README.md).
+`python -m mccontrol.webexport` writes the behaviour it shares with this package (commands,
+deny list, cautions, result codes, facts, help, firmware checks, brokers) and the shared test
+vectors as JSON; `tests/test_webexport.py` fails when they are stale.
