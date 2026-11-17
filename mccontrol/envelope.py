@@ -48,6 +48,7 @@ RESULT_CODES = {
     9: "replay", 10: "expired", 11: "expiry-too-far", 12: "no-clock",
     13: "command-chars", 14: "not-allowed", 15: "no-owner-key", 16: "sig-invalid",
     17: "rate-limited", 18: "broadcast-transmit",
+    19: "mesh-closed",
 }
 
 # What a result code means to a person, so a refusal needs no manual.
@@ -61,6 +62,7 @@ RESULT_HELP = {
     16: "The signature did not verify. The node holds a different public key than this one.",
     17: "The node's rate limit refused it. Wait a few minutes.",
     18: "A command that transmits may not be sent to every node at once.",
+    19: "The node takes commands over the mesh only while its MQTT link has been down for 15 minutes. Send over MQTT.",
 }
 
 
