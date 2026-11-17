@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
     "wait_secs": 20,
     # Statistics come from a Beacon server (read-only HTTP, no credentials); one URL, since
     # one Beacon covers a country, and another region's Beacon is this one setting.
-    "beacon_url": "https://beacon.meshcore-jkp.se/api/v1",
+    "beacon_url": "https://beacon.meshcoresverige.se/api/v1",
     # Which optional columns the directory shows after name and node (directory.COLUMNS);
     # a narrow terminal shows what is chosen here rather than the first that fit.
     "columns": ["reg", "sent", "batt", "seen", "ver", "result"],
@@ -59,7 +59,7 @@ SET_STEPS = 6
 FORMER_BROKERS = ("mqtt.meshcore-jkp.se", "mqtt.louie.se")
 # A saved configuration holds every default as it was when saved, so a former default Beacon
 # is moved to the current one like a former broker.
-FORMER_BEACONS = ("https://beacon.meshat.se/api/v1",)
+FORMER_BEACONS = ("https://beacon.meshat.se/api/v1", "https://beacon.meshcore-jkp.se/api/v1")
 
 SHORTCUT_SLOTS = 9
 DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", "get repeat"]

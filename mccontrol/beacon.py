@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_URL = "https://beacon.meshcore-jkp.se/api/v1"
+DEFAULT_URL = "https://beacon.meshcoresverige.se/api/v1"
 # beacon.meshcore-jkp.se answers 403 to urllib's own User-Agent (checked 2026-11-17) and 200
 # to a browser's, so a read says it is one.
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"

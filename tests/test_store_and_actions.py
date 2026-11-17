@@ -463,9 +463,11 @@ def test_a_send_to_the_default_broker_signs_in_with_the_tools_own_key(store, mon
 
 def test_a_stored_former_default_beacon_moves_to_ours_and_a_chosen_one_stays(store):
     import json
-    (store.root / "config.json").write_text(json.dumps({"beacon_url": "https://beacon.meshat.se/api/v1"}))
-    assert store.config()["beacon_url"] == "https://beacon.meshcore-jkp.se/api/v1"
-    assert json.loads((store.root / "config.json").read_text())["beacon_url"] == "https://beacon.meshcore-jkp.se/api/v1"
+    ours = "https://beacon.meshcoresverige.se/api/v1"
+    for former in ("https://beacon.meshat.se/api/v1", "https://beacon.meshcore-jkp.se/api/v1"):
+        (store.root / "config.json").write_text(json.dumps({"beacon_url": former}))
+        assert store.config()["beacon_url"] == ours
+        assert json.loads((store.root / "config.json").read_text())["beacon_url"] == ours
     (store.root / "config.json").write_text(json.dumps({"beacon_url": "https://beacon.example/api/v1"}))
     assert store.config()["beacon_url"] == "https://beacon.example/api/v1"
 
