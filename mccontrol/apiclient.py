@@ -73,11 +73,15 @@ class Client:
     def key(self):
         return self.call("GET", "/key")
 
-    def create_key(self, overwrite=False, seed=None):
+    def create_key(self, overwrite=False, seed=None, file=None, passphrase=None):
         body = {"overwrite": overwrite}
-        if seed is not None:
-            body["seed"] = seed
+        for name, value in (("seed", seed), ("file", file), ("passphrase", passphrase)):
+            if value is not None:
+                body[name] = value
         return self.call("POST", "/key", body=body)
+
+    def export_key(self, passphrase):
+        return self.call("POST", "/key/backup", body={"passphrase": passphrase})
 
     # -- devices -------------------------------------------------------------------------
 

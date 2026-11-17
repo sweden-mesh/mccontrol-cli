@@ -25,6 +25,7 @@ command unless --api names one already running.
 import argparse
 import contextlib
 import json
+import os
 import sys
 
 from .apiclient import ApiError, Client
@@ -38,7 +39,11 @@ def build_parser():
     sub = p.add_subparsers(dest="command")
     sub.add_parser("keygen", help="create the signing key").add_argument(
         "--force", action="store_true", help="replace an existing key (silences provisioned nodes)")
-    sub.add_parser("key", help="print the public key to provision with 'set mqtt.cmd.pubkey'")
+    k = sub.add_parser("key", help="print the public key to provision with 'set mqtt.cmd.pubkey'; "
+                                   "or move the key: export to / import from a passphrase-encrypted file")
+    k.add_argument("action", nargs="?", choices=("export", "import"))
+    k.add_argument("file", nargs="?", help="the backup file (import also takes a file holding a bare seed)")
+    k.add_argument("--force", action="store_true", help="import: replace an existing key (silences provisioned nodes)")
     c = sub.add_parser("config", help="show or change the control brokers")
     c.add_argument("--broker", help="the shared broker: every region without its own uses it")
     c.add_argument("--region-broker", action="append", metavar="REGION=HOST",
@@ -183,7 +188,9 @@ def _keygen(api, args):
     return 0
 
 
-def _key(api, _args):
+def _key(api, args):
+    if args.action:
+        return _key_file(api, args)
     key = api.key()
     if not key["exists"]:
         raise ApiError("store", "no signing key yet: create one first", 0)
@@ -194,6 +201,34 @@ def _key(api, _args):
             print(f"registered with {reg['broker']} on {reg['at'][:10]}")
         elif several:                             # one broker: silence says it, as before RB-1
             print(f"not registered with {reg['broker']}: run 'mccontrol register'")
+    return 0
+
+
+def _key_file(api, args):
+    """Export or import the key through a backup file, the format the web app reads too."""
+    import getpass
+    import pathlib
+    if not args.file:
+        raise ApiError("usage", f"key {args.action} needs a file", 0)
+    path = pathlib.Path(args.file)
+    if args.action == "export":
+        if path.exists():
+            raise ApiError("usage", f"{path} exists; choose another name", 0)
+        first = getpass.getpass("passphrase for the backup: ")
+        if first != getpass.getpass("the same again: "):
+            raise ApiError("usage", "the passphrases differ", 0)
+        backup = api.export_key(first)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(backup, indent=2) + "\n")
+        print(f"backup written to {path}; it opens with that passphrase, here or in the web app")
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ApiError("usage", str(exc), 0) from None
+    passphrase = getpass.getpass("passphrase of the backup: ") if text.lstrip().startswith("{") else None
+    print(api.create_key(overwrite=args.force, file=text, passphrase=passphrase)["public"])
     return 0
 
 

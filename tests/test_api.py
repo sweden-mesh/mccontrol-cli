@@ -100,6 +100,12 @@ def test_every_route_answers_as_its_schema_says(api, monkeypatch):
     assert call(url, "POST", "/key", {"overwrite": True, "seed": "22" * 32})[0] == 201
     assert call(url, "POST", "/key", {"overwrite": True, "seed": ""})[0] == 400     # an empty import makes no key
     assert call(url, "GET", "/key")[1]["public"] == envelope.public_key_hex("22" * 32)
+    assert call(url, "POST", "/key/backup", {"passphrase": "short"})[0] == 400
+    status, backup = call(url, "POST", "/key/backup", {"passphrase": "long enough"})
+    assert status == 200 and backup["public_key"] == envelope.public_key_hex("22" * 32) and "22" * 32 not in json.dumps(backup)
+    file = json.dumps(backup)
+    assert call(url, "POST", "/key", {"overwrite": True, "file": file, "passphrase": "wrong one"})[0] == 400
+    assert call(url, "POST", "/key", {"overwrite": True, "file": file, "passphrase": "long enough"})[1]["public"] == backup["public_key"]
     listing = call(url, "GET", "/devices?sort=region&width=60")[1]
     assert [d["node"] for d in listing["devices"]] == ["FD700369", "4AC61A7F", "65C1D12C"]
     assert listing["footer"] == "3 devices" and len(listing["devices"][0]["row"]) <= 59

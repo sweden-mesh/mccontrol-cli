@@ -93,7 +93,8 @@ columns the directory shows.
 ## What it does
 
 - **Keys.** An Ed25519 seed under `~/.config/mccontrol/key.seed`, mode 600, never shown and
-  never leaving the machine inside anything but a signature. Each interface's key screen shows
+  never leaving the machine except inside a signature or a passphrase-encrypted backup
+  (`mccontrol key export FILE`, `mccontrol key import FILE`; the web app reads the same file). Each interface's key screen shows
   the two serial commands that provision a repeater, on one line, and refuses to replace a key by accident.
 - **Devices.** Name, node id (the first eight hex characters of the public key, as the firmware
   names it on its topics), region (the IATA code its observers use; a person may run repeaters

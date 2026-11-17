@@ -156,6 +156,37 @@
     }
    }
   },
+  "/key/backup": {
+   "post": {
+    "operationId": "export_key",
+    "summary": "The key as a passphrase-encrypted backup file",
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/KeyBackupRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/KeyBackup"
+        }
+       }
+      }
+     },
+     "400": {
+      "$ref": "#/components/responses/BadRequest"
+     }
+    }
+   }
+  },
   "/devices": {
    "get": {
     "operationId": "devices",
@@ -2125,6 +2156,14 @@
      "seed": {
       "type": "string",
       "description": "import this 64-hex seed instead of generating one"
+     },
+     "file": {
+      "type": "string",
+      "description": "import a key file's text instead: a backup (mccontrol-key-backup, opened with passphrase) or a bare 64-hex seed"
+     },
+     "passphrase": {
+      "type": "string",
+      "description": "the passphrase that opens `file` when it is a backup"
      }
     },
     "example": {
@@ -4070,6 +4109,79 @@
       "type": "string"
      },
      "region": {
+      "type": "string"
+     }
+    }
+   },
+   "KeyBackupRequest": {
+    "type": "object",
+    "required": [
+     "passphrase"
+    ],
+    "properties": {
+     "passphrase": {
+      "type": "string",
+      "description": "at least 8 characters; the file opens with it, here or in the web app"
+     }
+    },
+    "example": {
+     "passphrase": "correct horse battery"
+    }
+   },
+   "KeyBackup": {
+    "type": "object",
+    "required": [
+     "format",
+     "version",
+     "public_key",
+     "created",
+     "kdf",
+     "cipher",
+     "ciphertext"
+    ],
+    "description": "The seed sealed under a passphrase: PBKDF2-HMAC-SHA256 then AES-256-GCM, the fields but `created` bound as additional data. The web app reads and writes the same file.",
+    "properties": {
+     "format": {
+      "type": "string",
+      "enum": [
+       "mccontrol-key-backup"
+      ]
+     },
+     "version": {
+      "type": "integer"
+     },
+     "public_key": {
+      "type": "string"
+     },
+     "created": {
+      "type": "string"
+     },
+     "kdf": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "iterations": {
+        "type": "integer"
+       },
+       "salt": {
+        "type": "string"
+       }
+      }
+     },
+     "cipher": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "nonce": {
+        "type": "string"
+       }
+      }
+     },
+     "ciphertext": {
       "type": "string"
      }
     }

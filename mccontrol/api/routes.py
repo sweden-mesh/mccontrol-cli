@@ -4,7 +4,7 @@ waits on the broker or Beacon is a job (`jobs.py`)."""
 
 import pathlib
 
-from .. import actions, commands, denylist, directory, envelope, facts, firmware, helptext, store as _store
+from .. import actions, commands, denylist, directory, envelope, facts, firmware, helptext, keyfile, store as _store
 from .errors import ApiError, bad, not_found
 
 SPEC = pathlib.Path(__file__).with_name("openapi.json")
@@ -202,6 +202,12 @@ def get_key(ctx, _p, _q, _b):
 def create_key(ctx, _p, _q, body):
     overwrite = bool(body.get("overwrite"))
     seed = _str(body, "seed")
+    text = _str(body, "file")
+    if text is not None:               # a backup file (opened with `passphrase`) or a bare seed
+        try:
+            seed = keyfile.read(text, _str(body, "passphrase") or "")
+        except keyfile.KeyFileError as exc:
+            raise bad(str(exc)) from None
     if ctx.store.has_key() and not overwrite:
         raise ApiError(409, "conflict", f"a key already exists at {ctx.store.key_path}; "
                                         f"replacing it would silence every node provisioned with it")
@@ -213,6 +219,17 @@ def create_key(ctx, _p, _q, body):
     except ValueError as exc:
         raise bad(f"not a seed: {exc}") from None
     return 201, key_view(ctx.store)
+
+
+def export_key(ctx, _p, _q, body):
+    """The key as a backup file: the seed sealed under the passphrase (keyfile.py). The one
+    route through which the seed leaves, and only encrypted."""
+    passphrase = _str(body, "passphrase") or ""
+    if len(passphrase) < 8:
+        raise bad("a backup's passphrase has at least 8 characters")
+    if not ctx.store.has_key():
+        raise bad("no signing key yet: create one first")
+    return 200, keyfile.seal(ctx.store.seed(), passphrase)
 
 
 # -- devices -----------------------------------------------------------------------------
@@ -529,6 +546,7 @@ TABLE = [
     ("PATCH", "/config", set_config),
     ("GET", "/key", get_key),
     ("POST", "/key", create_key),
+    ("POST", "/key/backup", export_key),
     ("GET", "/devices", list_devices),
     ("POST", "/devices", add_device),
     ("POST", "/devices/adopt", adopt),
