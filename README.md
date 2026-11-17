@@ -133,7 +133,7 @@ mccontrol send loutest region --dry-run
 mccontrol regions loutest
 mccontrol alt 2 loutest                  # shortcut 2 (ver); mccontrol shortcuts lists and --set changes them
 mccontrol run add-scope loutest se-jkp   # a command set, step by step, stopping at the first refusal; mccontrol sets lists them
-mccontrol stats loutest --range 48h      # from Beacon (beacon.meshat.se by default; mccontrol config --beacon-url for another)
+mccontrol stats loutest --range 48h      # from Beacon (beacon.meshcore-jkp.se by default; mccontrol config --beacon-url for another)
 mccontrol fleet                          # the directory with Batt and Seen refreshed from Beacon
 mccontrol refresh [device...]            # get name and ver over the control plane; names the unnamed
 mccontrol reads loutest                  # what it last answered to each read, with the age

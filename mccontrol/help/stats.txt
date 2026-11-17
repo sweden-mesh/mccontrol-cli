@@ -12,7 +12,7 @@ of the node's command slots this hour), and a node on the firmware of
 just now" at the top; older firmware answers not-allowed and the view
 says so. Then a Beacon server -- an open-source MeshCore observation
 service that ingests the MQTT brokers and serves a read-only API with no
-credentials. The default is beacon.meshat.se, which covers Sweden; the
+credentials. The default is beacon.meshcore-jkp.se, which covers Sweden; the
 configuration has the URL for another region's Beacon, and so does
 
   mccontrol config --beacon-url https://beacon.example/api/v1

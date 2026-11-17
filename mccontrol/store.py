@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
     "wait_secs": 20,
     # Statistics come from a Beacon server (read-only HTTP, no credentials); one URL, since
     # one Beacon covers a country, and another region's Beacon is this one setting.
-    "beacon_url": "https://beacon.meshat.se/api/v1",
+    "beacon_url": "https://beacon.meshcore-jkp.se/api/v1",
     # Which optional columns the directory shows after name and node (directory.COLUMNS);
     # a narrow terminal shows what is chosen here rather than the first that fit.
     "columns": ["reg", "sent", "batt", "seen", "ver", "result"],
@@ -57,6 +57,9 @@ SET_STEPS = 6
 # plugin accepts a token only for a name it lists, so a configuration still holding one is
 # moved to the current default on load: the next login signs for the name the broker takes.
 FORMER_BROKERS = ("mqtt.meshcore-jkp.se", "mqtt.louie.se")
+# A saved configuration holds every default as it was when saved, so a former default Beacon
+# is moved to the current one like a former broker.
+FORMER_BEACONS = ("https://beacon.meshat.se/api/v1",)
 
 SHORTCUT_SLOTS = 9
 DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", "get repeat"]
@@ -64,8 +67,12 @@ DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", 
 
 def _migrate_broker(stored):
     """Rename a former default broker in a stored configuration, and in its records of
-    registering and testing there, to the current default. True when anything changed."""
+    registering and testing there, to the current default, and a former default Beacon. True
+    when anything changed."""
     changed = False
+    if stored.get("beacon_url") in FORMER_BEACONS:
+        stored["beacon_url"] = DEFAULT_CONFIG["beacon_url"]
+        changed = True
     for record in (stored, stored.get("registered"), stored.get("tested")):
         if isinstance(record, dict) and record.get("broker") in FORMER_BROKERS:
             record["broker"] = DEFAULT_CONFIG["broker"]

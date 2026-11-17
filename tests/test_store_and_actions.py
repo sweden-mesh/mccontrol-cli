@@ -441,6 +441,15 @@ def test_a_send_to_the_default_broker_signs_in_with_the_tools_own_key(store, mon
     assert _FakeClient.logins[-1] == ("mcoar", "pw")
 
 
+def test_a_stored_former_default_beacon_moves_to_ours_and_a_chosen_one_stays(store):
+    import json
+    (store.root / "config.json").write_text(json.dumps({"beacon_url": "https://beacon.meshat.se/api/v1"}))
+    assert store.config()["beacon_url"] == "https://beacon.meshcore-jkp.se/api/v1"
+    assert json.loads((store.root / "config.json").read_text())["beacon_url"] == "https://beacon.meshcore-jkp.se/api/v1"
+    (store.root / "config.json").write_text(json.dumps({"beacon_url": "https://beacon.example/api/v1"}))
+    assert store.config()["beacon_url"] == "https://beacon.example/api/v1"
+
+
 @pytest.mark.parametrize("former", ["mqtt.meshcore-jkp.se", "mqtt.louie.se"])
 def test_a_stored_former_broker_name_moves_to_the_new_one_and_the_token_follows(store, monkeypatch, former):
     import json

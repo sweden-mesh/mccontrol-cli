@@ -26,7 +26,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_URL = "https://beacon.meshat.se/api/v1"
+DEFAULT_URL = "https://beacon.meshcore-jkp.se/api/v1"
+# beacon.meshcore-jkp.se answers 403 to urllib's own User-Agent (checked 2026-11-17) and 200
+# to a browser's, so a read says it is one.
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
 TIMEOUT_SECS = 10
 RANGES = ("24h", "48h", "168h")
 INTERVALS = ("1h", "6h", "24h")
@@ -67,7 +70,8 @@ def _get(config, path, params=None):
         return table[path]
     url = base_url(config) + path + (("?" + urllib.parse.urlencode(params)) if params else "")
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}),
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json",
+                                                                    "User-Agent": USER_AGENT}),
                                     timeout=TIMEOUT_SECS) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
