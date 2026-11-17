@@ -2,7 +2,7 @@
 
 `python -m mccontrol.webexport` (from a clone) writes `web/lib/data/*.json` -- the command
 table, cautions, deny list, result codes and their help, facts, help topics, firmware
-capabilities, brokers and the protocol's constants -- and `web/test/vectors.json`: fixed
+capabilities, brokers, the areas (county, scope, IATA) and the protocol's constants -- and `web/test/vectors.json`: fixed
 inputs and the exact output this package gives for them (envelopes v1 and v2, results r1, r2
 and r3, the broker token, the registration line, the checks the screens make before
 signing, and the mesh road's request and response bytes with the wire-format document's own
@@ -16,7 +16,7 @@ import hashlib
 import json
 import pathlib
 
-from . import actions, commands, denylist, envelope, facts, firmware, helptext, mesh, store, token
+from . import actions, areas, commands, denylist, envelope, facts, firmware, helptext, mesh, store, token
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
@@ -139,6 +139,12 @@ def data():
             "wait_secs": store.DEFAULT_CONFIG["wait_secs"],
             "beacon_url": store.DEFAULT_CONFIG["beacon_url"],
             "default_sets": store.DEFAULT_SETS,
+        },
+        "areas.json": {
+            "_source": _source("mccontrol/areas.py") + "; " + areas.SOURCE,
+            "rule": "an owner picks a county; the app sends to its IATA codes. Shown as '<county> · <scope>'",
+            "areas": [{"scb": scb, "county": county, "scope": scope, "iatas": list(iatas)}
+                      for scb, county, scope, iatas in areas.AREAS],
         },
         "protocol.json": {
             "_source": _source("mccontrol/envelope.py", "mccontrol/token.py", "mccontrol/mesh.py"),
