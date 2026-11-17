@@ -4,8 +4,9 @@
 table, cautions, deny list, result codes and their help, facts, help topics, firmware
 capabilities, brokers and the protocol's constants -- and `web/test/vectors.json`: fixed
 inputs and the exact output this package gives for them (envelopes v1 and v2, results r1, r2
-and r3, the broker token, the registration line, and the checks the screens make before
-signing), so the JavaScript ports can prove byte-identical behaviour.
+and r3, the broker token, the registration line, the checks the screens make before
+signing, and the mesh road's request and response bytes with the wire-format document's own
+worked vectors), so the JavaScript ports can prove byte-identical behaviour.
 `tests/test_webexport.py` fails when any committed file differs from what this writes.
 
 The vectors use a seed made here from a fixed phrase, never a real key.
@@ -15,7 +16,7 @@ import hashlib
 import json
 import pathlib
 
-from . import actions, commands, denylist, envelope, facts, firmware, helptext, store, token
+from . import actions, commands, denylist, envelope, facts, firmware, helptext, mesh, store, token
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
@@ -66,6 +67,17 @@ def data():
             "verbs": [{"text": t, "exact": e} for t, e in denylist.VERBS],
             "broadcast_refused": list(denylist.BROADCAST_REFUSED),
             "broadcast_refused_why": denylist.BROADCAST_REFUSED_WHY,
+            "mesh": {
+                "rule": "see denylist.mesh_refusal: with an uplink, a command (runs of space made one) that "
+                        "starts with a with_value prefix and has more after it, or equals an exact entry, "
+                        "case-sensitive, travels; anything else as the deny list says. On a mesh-only "
+                        "device a needs_uplink command (whole, any case) or an allowance command is refused "
+                        "with mesh_only_why, and the deny list applies in full",
+                "allowance_with_value": list(denylist.MESH_ALLOWANCE_WITH_VALUE),
+                "allowance_exact": list(denylist.MESH_ALLOWANCE_EXACT),
+                "needs_uplink": list(denylist.NEEDS_UPLINK),
+                "mesh_only_why": "denied: " + denylist.MESH_ONLY_WHY,
+            },
             "messages": {
                 "empty": "an empty command",
                 "separator": "'|' is the envelope's field separator; region put one name at a time",
@@ -102,6 +114,9 @@ def data():
             "arrived": dict(firmware.ARRIVED),
             "v2_from": firmware.V2_FROM,
             "utf8_from": firmware.UTF8_FROM,
+            "mesh_from": firmware.MESH_FROM,
+            "mesh_only_rule": "a version containing -lou- whose features have rc and which does not contain "
+                              "-observer (lower case); a device's own mesh_only (true/false) wins when set",
             "private_subtype": {"old": firmware.PRIVATE_SUBTYPE_OLD, "new": firmware.PRIVATE_SUBTYPE,
                                 "from": firmware.PRIVATE_SUBTYPE_FROM},
         },
@@ -212,7 +227,7 @@ def vectors():
     out = {
         "_source": _source("mccontrol/envelope.py", "mccontrol/token.py", "mccontrol/denylist.py",
                            "mccontrol/firmware.py", "mccontrol/actions.py", "mccontrol/facts.py",
-                           "mccontrol/commands.py"),
+                           "mccontrol/commands.py", "mccontrol/mesh.py"),
         "_note": "seeds are SHA-256 of fixed phrases (see webexport.py); never a real key",
         "seed": seed,
         "public_key": envelope.public_key_hex(seed),
@@ -302,7 +317,92 @@ def vectors():
                            "ack_topic": envelope.register_ack_topic(envelope.public_key_hex(seed)),
                            "payload": envelope.register_payload(seed, now=TEST_NOW)}
     out["checks"] = _checks()
+    out["mesh"] = _mesh_vectors()
     return out
+
+
+# The mesh road's constants, in the vectors until the browser's protocol module takes them (W-16).
+MESH_CONSTANTS = {
+    "subtype": mesh.SUBTYPE, "cmd_send_anon_req": mesh.CMD_SEND_ANON_REQ,
+    "max_command": mesh.MAX_COMMAND, "head": mesh.HEAD, "response_head": mesh.RESPONSE_HEAD,
+    "mesh_only_region": mesh.MESH_ONLY_REGION, "clock_set_from": mesh.CLOCK_SET_FROM,
+    "request": "subtype(1) | counter(4 LE) | expiry(4 LE) | raw Ed25519 signature(64) | command UTF-8; "
+               "the companion prepends its 4-byte tag",
+    "response": "after the tag: node clock(4 LE, unset below clock_set_from) | counter(4 LE) | "
+                "code(1) | reply UTF-8, possibly cut inside a character (drop the partial one)",
+    "topic": "meshcore/{REGION upper}/{whole key upper}/cmd, or meshcore/mesh/{key}/cmd on a mesh-only node",
+}
+
+
+# The wire-format document's own test keys (otm-wire-format-20261117.md, "Worked test vector"),
+# which the firmware's host tests pin: seeds 0x11.. and 0xA0.., never on any node.
+DOC_SEED = bytes(0x11 + i for i in range(32)).hex()
+DOC_NODE_SEED = bytes(0xA0 + i for i in range(32)).hex()
+
+MESH_CASES = (
+    # (region, mesh_only, counter, expiry, command)
+    ("TST", False, 7, 1795000000, "set wifi.ssid HomeNet"),
+    ("TST", True, 7, 1795000000, "get name"),
+    ("jkg", False, TEST_NOW, TEST_NOW + 300, "ver"),
+    ("JKG", False, 4294967295, 4294967295, "set name SE-JKP-Väster"),
+    ("JKG", False, TEST_NOW + 1, TEST_NOW + 301, "x" * 59),
+    ("JKG", True, TEST_NOW + 2, TEST_NOW + 302, "region put se-jkp *"),
+)
+
+
+def _mesh_request(seed, node_key, region, only, counter, expiry, command):
+    topic = mesh.topic(region, node_key, only)
+    body = mesh.request(seed, topic, counter, expiry, command)
+    return {"region": region, "mesh_only": only, "counter": counter, "expiry": expiry, "command": command,
+            "topic": topic, "signed": envelope.signed_message(topic, envelope.signed_part(counter, expiry, command)).decode("utf-8"),
+            "signature": body[9:73].hex().upper(), "body": body.hex().upper(),
+            "frame": mesh.frame(node_key, body).hex().upper(),
+            "mqtt_payload": f"{envelope.signed_part(counter, expiry, command)}|{body[9:73].hex().upper()}"}
+
+
+def _mesh_vectors():
+    doc_node = envelope.public_key_hex(DOC_NODE_SEED)
+    node = _node_key()
+    worked = [_mesh_request(DOC_SEED, doc_node, *case) for case in MESH_CASES[:2]]
+    worked[0]["tag"] = "00F15365"
+    worked[0]["plaintext"] = "00F15365" + worked[0]["body"]
+    requests = [_mesh_request(TEST_SEED, node, *case) for case in MESH_CASES[2:]]
+    too_long = []
+    for command in ("x" * 60, "set wifi.ssid " + "å" * 23, ""):
+        try:
+            mesh.check_command(command)
+            raise AssertionError(f"{command!r} should not fit")
+        except envelope.EnvelopeError:
+            too_long.append({"command": command, "bytes": len(command.encode("utf-8")), "error": True})
+    responses = []
+    for hex_, counter in (
+            ("EF934466" "07000000" "00" "4F4B", 7),                                    # the document's: unset clock
+            ("EF934466" "07000000" "00" "4F4B", 8),                                    # another counter: not ours
+            (mesh.response(1795000000, 7, 19).hex().upper(), 7),                       # mesh-closed
+            (mesh.response(1795000000, 7, 14).hex().upper(), 7),                       # not-allowed
+            (mesh.response(1795000000, 7, 0, "> SE-JKP-Väster").hex().upper()[:-2], 7),   # cut between whole characters
+            (mesh.response(1795000000, 7, 0, "> Vä").hex().upper()[:-2], 7),          # cut inside the ä
+            ("EF93446607000000", 7),                                                   # too short
+            (mesh.response(1795000000, 7, 0, "").hex().upper(), None)):                # no counter to match
+        r = mesh.parse_response(bytes.fromhex(hex_), counter=counter)
+        responses.append({"data": hex_, "counter": counter,
+                          "result": None if r is None else {"counter": r.counter, "code": r.code,
+                                                            "reply": r.reply, "clock": r.clock}})
+    return {"constants": MESH_CONSTANTS, "doc_seed": DOC_SEED, "doc_node_seed": DOC_NODE_SEED,
+            "doc_public_key": envelope.public_key_hex(DOC_SEED), "doc_node_key": doc_node,
+            "worked": worked, "requests": requests, "too_long": too_long, "responses": responses,
+            "refusal": [{"command": c, "uplink": denylist.mesh_refusal(c), "mesh_only": denylist.mesh_refusal(c, mesh_only=True)}
+                        for c in CHECK_COMMANDS + MESH_CHECK_COMMANDS],
+            "firmware": [{"version": v, "speaks_mesh": firmware.speaks_mesh(v), "mesh_only": firmware.mesh_only(v)}
+                         for v in CHECK_VERSIONS]}
+
+
+MESH_CHECK_COMMANDS = (
+    "set wifi.ssid HomeNet", "set wifi.ssid", "set wifi.ssid ", "set wifi.pwd s3cret", "set wifi.pwdx s3cret",
+    "SET WIFI.SSID HomeNet", "set mqtt.cmd on", "set mqtt.cmd on mqtt-meshcore.louie.se", "set mqtt.cmd off",
+    "set mqtt.cmd.pubkey AA", "set mqtt.cmd.mesh on", "get wifi.ssid", "get wifi.pwd", "set mqtt1.server x.se",
+    "OTA CHECK", "mqtt.cmd ping", "reboot",
+)
 
 
 CHECK_COMMANDS = (
@@ -332,6 +432,10 @@ CHECK_VERSIONS = (
     "ESP32S3-V1.17.1-LOU-18-ARRC-OBSERVER-1A2B3C4D",
     "esp32s3-v1.18.0-lou-19-arrc-observer-1a2b3c4d",
     "esp32s3-v1.17.1-lou-18-xyz-observer-1a2b3c4d",
+    "nrf52-v1.18.0-lou-19-rc-1a2b3c4d",
+    "nrf52-v1.18.0-lou-19-arrc-1a2b3c4d",
+    "esp32s3-v1.18.0-lou-19-ar-1a2b3c4d",
+    "esp32s3-v1.18.0-lou-18-rc-1a2b3c4d",
 )
 
 FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "mqtt.cmd ping",

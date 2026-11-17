@@ -1,6 +1,6 @@
 """One shape for every error: `{"error": {"code", "message"}}`, with the status it travels on."""
 
-from .. import beacon, envelope, store as _store, transport
+from .. import beacon, envelope, mesh, store as _store, transport
 
 
 class ApiError(Exception):
@@ -34,6 +34,8 @@ def classify(exc):
         return 502, "broker", str(exc)
     if isinstance(exc, beacon.BeaconError):
         return 502, "beacon", str(exc)
+    if isinstance(exc, mesh.MeshError):
+        return 502, "companion", str(exc)
     return 500, "internal", f"{type(exc).__name__}: {exc}"
 
 

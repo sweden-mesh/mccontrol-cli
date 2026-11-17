@@ -1,8 +1,9 @@
 """What the screens and the command line both do, so they cannot disagree."""
 
 import datetime
+import time
 
-from . import beacon, commands, denylist, envelope, firmware, nodestats, store as _store, transport
+from . import beacon, commands, denylist, envelope, firmware, mesh, nodestats, store as _store, transport
 from .store import _now as _store_now
 
 # Commands that take something away from a repeater. Each is sent only after the person has
@@ -30,6 +31,13 @@ CAUTIONS = (
     ("set mqtt5*", "changes slot 5's broker or credentials; if the control plane rides this slot, it may go silent."),
     ("set mqtt6*", "changes slot 6's broker or credentials; if the control plane rides this slot, it may go silent."),
     ("set name", "renames the node as the whole mesh sees it in every advert."),
+    # The mesh road's repair allowance (OTM-1): admitted over the mesh only.
+    ("set wifi.ssid", "moves the node to another Wi-Fi network; a wrong one keeps it off MQTT "
+                      "until the mesh road sets it again."),
+    ("set wifi.pwd", "changes the Wi-Fi password the node uses; a wrong one keeps it off MQTT "
+                     "until the mesh road sets it again."),
+    ("set mqtt.cmd on", "points the node's command slot at a broker; a wrong one keeps it off the "
+                        "control plane until the mesh road sets it again."),
 )
 
 
@@ -82,14 +90,144 @@ def outcome_line(result, version=None):
     return line + (f" -- {result.help}" if result.help else "")
 
 
-def send(store, command, device=None, region=None, dry_run=False, wait_secs=None, progress=None, script=None):
+ROADS = ("mqtt", "mesh", "auto")
+
+
+def _when(text):
+    try:
+        return datetime.datetime.fromisoformat(text).timestamp() if text else None
+    except (TypeError, ValueError):
+        return None
+
+
+def mqtt_heard_at(store, device, now=None):
+    """When the node was last heard over MQTT, as unix seconds, or None: its status on Beacon
+    (asked now, a read that costs no airtime), else its last answer over MQTT, else the
+    fleet's last-seen."""
+    try:
+        return beacon.stats(store, device, now=now)["sampled_at"]
+    except beacon.BeaconError:
+        pass
+    seen = [_when(device.get("last_heard_mqtt")), _when((device.get("fleet") or {}).get("seen"))]
+    if not device.get("last_heard_mesh"):
+        seen.append(_when(device.get("last_heard")))      # from before roads were recorded: MQTT
+    seen = [s for s in seen if s is not None]
+    return max(seen) if seen else None
+
+
+def road(store, device, command, via="mqtt", now=None):
+    """`(road, why)`: which road a command to `device` (None: a broadcast) takes. `via` is
+    the person's choice; `auto` is the mesh for a mesh-only node, for a command only the mesh
+    admits, and for a node not heard over MQTT for `mesh_after_mins`; otherwise MQTT (and the
+    mesh after all if the broker cannot be reached: `send` does that)."""
+    via = (via or "mqtt").lower()
+    if via not in ROADS:
+        raise envelope.EnvelopeError(f"the road is one of {', '.join(ROADS)}")
+    if device is None:
+        if via == "mesh":
+            raise envelope.EnvelopeError("the mesh road goes to one node at a time; a broadcast goes over MQTT")
+        return "mqtt", ""
+    if firmware.device_mesh_only(device):
+        if via == "mqtt":
+            raise envelope.EnvelopeError(f"{device.get('name') or device['node']} is mesh only (no Wi-Fi, "
+                                         f"no MQTT); send it --via mesh")
+        return "mesh", "mesh only"
+    if via != "auto":
+        return via, ""
+    text = " ".join((command or "").split())
+    if denylist.refusal(text) and denylist.mesh_refusal(text) is None:
+        return "mesh", "only the mesh road admits it"
+    mins = int(store.config().get("mesh_after_mins", 15))
+    now = time.time() if now is None else now
+    heard = mqtt_heard_at(store, device, now=now)
+    if heard is not None and now - heard >= mins * 60:
+        return "mesh", f"not heard over MQTT for {int((now - heard) // 60)} min"
+    return "mqtt", ""
+
+
+def send(store, command, device=None, region=None, dry_run=False, wait_secs=None, progress=None, script=None,
+         via="mqtt"):
     """Sign and send `command` to one device, or with `region` to every node in that region.
-    `script`, here and below, stands in for the broker in tests (`transport._fake`).
+    `script`, here and below, stands in for the broker in tests (`transport._fake`). `via`
+    picks the road (`road`): MQTT, the mesh through your companion, or auto.
 
     Returns `(topic, payload, {node: Result}, lines)`, where `lines` is what to show.
-    Raises `envelope.EnvelopeError`, `transport.BrokerError` or `store.StoreError`.
+    Raises `envelope.EnvelopeError`, `transport.BrokerError`, `mesh.MeshError` or
+    `store.StoreError`.
     """
     config = store.config()
+    chosen, why_road = road(store, device, command, via)
+    if chosen == "mesh":
+        return send_mesh(store, command, device, dry_run=dry_run, wait_secs=wait_secs, progress=progress,
+                         script=script, why=why_road, fallback=via == "auto")
+    if via == "auto" and not dry_run:
+        try:
+            return _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script)
+        except transport.BrokerError as exc:
+            return send_mesh(store, command, device, wait_secs=wait_secs, progress=progress, script=script,
+                             why=f"MQTT unreachable: {exc}")
+    return _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script)
+
+
+def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=None, script=None, why="",
+              fallback=False):
+    """One command to one node over the mesh, through the companion in the configuration.
+    With `fallback` (the auto road), a `mesh-closed` answer -- the node's road is shut
+    because its MQTT works -- sends it again over MQTT."""
+    config = store.config()
+    text = " ".join((command or "").split())
+    only = firmware.device_mesh_only(device)
+    refused = denylist.mesh_refusal(text, mesh_only=only)
+    if refused:
+        raise envelope.EnvelopeError(f"the node would refuse {command!r} over the mesh: {refused}")
+    mesh.check_command(command)             # 59 bytes, before anything is signed
+    if firmware.speaks_mesh(device.get("ver")) is False:
+        raise envelope.EnvelopeError(f"{device['name'] or device['node']} runs {device.get('ver')}; the mesh "
+                                     f"road needs lou-19 with the plane (rc)")
+    if not command.isascii() and not firmware.admits_utf8(device.get("ver")):
+        raise envelope.EnvelopeError(f"{device['name']} runs {device.get('ver') or 'an unknown version'}, "
+                                     f"which takes plain ASCII only")
+    region = (device.get("region") or "").upper()
+    topic = mesh.topic(region, device.get("key"), only)
+    spec = config.get("companion") or ""
+    head = f"over the mesh{f' ({why})' if why else ''}"
+    if dry_run:
+        body = mesh.build(store.seed(), topic, 0, command, ttl_secs=config.get("ttl_secs", envelope.DEFAULT_TTL_SECS))
+        return topic, body.hex().upper(), {}, [f"would send {head} through {spec or 'your companion (none set)'}",
+                                               f"signed for {topic}", body.hex().upper(), "not sent (dry run)"]
+    mesh.parse_spec(spec)                   # no companion set: said now, before signing
+    wait = wait_secs or config.get("wait_secs", 20)
+    counter = int(time.time())
+    faked = transport._fake(topic, command, counter, [device["node"]], script)
+    if faked is not None:
+        transport._wait(transport.FAKE_WAIT_SECS, lambda: False, lambda: list(faked), progress)
+        r = faked.get(device["node"])
+        body = mesh.build(store.seed(), topic, counter, command, ttl_secs=config.get("ttl_secs", envelope.DEFAULT_TTL_SECS))
+        result = None if r is None else mesh.MeshResult(r.node, counter, r.code, command, r.reply, None)
+        info = {"path": "faked", "contact": "known"}
+    else:
+        topic, body, result, info = mesh.send(spec, store.seed(), region, device["key"], command, mesh_only=only,
+                                              name=device.get("name") or "", counter=counter,
+                                              ttl_secs=config.get("ttl_secs", envelope.DEFAULT_TTL_SECS),
+                                              wait_secs=wait, progress=progress)
+    if fallback and result is not None and result.code == 19:
+        store.record(device["node"], command, topic, result, note="mesh closed: sent over MQTT", road="mesh")
+        t, p, answers, lines = _send_mqtt(store, config, command, device, None, False, wait_secs, progress, script)
+        return t, p, answers, [f"{head}: the node's mesh road is closed (its MQTT works); sent over MQTT"] + lines
+    store.record(device["node"], command, topic, result, note=why, road="mesh")
+    if result is not None and result.ok and commands.is_read(command):
+        store.remember_read(device["node"], command, result.reply or "OK", result.verified)
+    path = info.get("path", "")
+    added = "; the node was made a contact on the companion" if info.get("contact") == "added" else ""
+    line = outcome_line(result, device.get("ver"))
+    if result is None:
+        line += " (silence over the mesh is not a refusal: a node without the road, or its budget, says nothing)"
+    return topic, body.hex().upper(), {device["node"]: result} if result is not None else {}, [
+        f"{head} through {spec}: {path}{added}",
+        f"{(device.get('name') or device['node'])[:12]:12} {line}"]
+
+
+def _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script):
     why = denylist.refusal(command)
     if why:
         raise envelope.EnvelopeError(f"the node would refuse {command!r}: {why}")
@@ -137,13 +275,13 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
     versions = {d["node"]: d.get("ver") for d in store.devices()}
     for node in hear:
         result = answers.get(node)
-        store.record(node, command, topic, result, note="broadcast" if broadcast else "")
+        store.record(node, command, topic, result, note="broadcast" if broadcast else "", road="mqtt")
         if result is not None and result.ok and commands.is_read(command) and node in names:
             store.remember_read(node, command, result.reply or "OK", result.verified)
         lines.append(f"{names.get(node, node[:8])[:12]:12} {outcome_line(result, versions.get(node))}")
     if broadcast:
         store.record(None, command, topic, None,
-                     note=f"{len(answers)} of {len(hear)} answered")
+                     note=f"{len(answers)} of {len(hear)} answered", road="mqtt")
     return topic, payload, answers, lines
 
 

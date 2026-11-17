@@ -4,7 +4,7 @@ waits on the broker or Beacon is a job (`jobs.py`)."""
 
 import pathlib
 
-from .. import actions, commands, denylist, directory, envelope, facts, firmware, helptext, keyfile, store as _store
+from .. import actions, commands, denylist, directory, envelope, facts, firmware, helptext, keyfile, mesh, store as _store
 from .errors import ApiError, bad, not_found
 
 SPEC = pathlib.Path(__file__).with_name("openapi.json")
@@ -49,7 +49,8 @@ def view(ctx, d, columns=None, width=100):
     """A device as the API shows it: the stored fields, without the reads (their own route),
     plus the directory's cells and row, stale and tagged."""
     out = {k: v for k, v in d.items() if k != "reads"}
-    for k in ("key", "added", "last_sent", "last_result", "last_heard", "ver", "fleet", "observer_id"):
+    for k in ("key", "added", "last_sent", "last_result", "last_heard", "ver", "fleet", "observer_id",
+              "mesh_only", "last_heard_mqtt", "last_heard_mesh"):
         out.setdefault(k, None)
     out.setdefault("notes", "")
     out["tagged"] = d["node"] in ctx.tags
@@ -125,7 +126,8 @@ def docs_page(_ctx, _p, _q, _b):
 # -- configuration and keys --------------------------------------------------------------
 
 CONFIG_TYPES = {"broker": str, "brokers": dict, "port": int, "username": str, "password": str, "tls": bool,
-                "ttl_secs": int, "wait_secs": (int, float), "beacon_url": str, "columns": list, "ui": str, "ui_settings": dict}
+                "ttl_secs": int, "wait_secs": (int, float), "beacon_url": str, "columns": list, "ui": str, "ui_settings": dict,
+                "companion": str, "mesh_after_mins": int}
 
 
 def get_config(ctx, _p, _q, _b):
@@ -285,6 +287,16 @@ def edit_device(ctx, params, _q, body):
         changes["region"] = changes["region"].upper()
         if not (2 <= len(changes["region"]) <= 8 and changes["region"].isalnum()):
             raise bad("a device needs its region: the IATA code its observers use, e.g. JKG")
+    if "mesh_only" in body:
+        if body["mesh_only"] is not None and not isinstance(body["mesh_only"], bool):
+            raise bad("mesh_only is true, false or null")
+        changes["mesh_only"] = body["mesh_only"]
+    if "key" in body:
+        key = envelope.node_key(_str(body, "key") or "") if all(
+            c in "0123456789abcdefABCDEF" for c in (_str(body, "key") or "").strip()) else None
+        if not key or key[:8] != d["node"]:
+            raise bad(f"key is the node's whole public key, 64 hex, starting with {d['node']}")
+        changes["key"] = key
     if changes.get("name") and any(o["name"].lower() == changes["name"].lower() and o["node"] != d["node"]
                                     for o in ctx.store.devices()):
         raise ApiError(409, "conflict", f"a device named {changes['name']!r} already exists")
@@ -348,7 +360,10 @@ def check_command(ctx, _p, query, _b):
                  "firmware": firmware.entry_for(d.get("ver"))[0] if d else None,
                  "admitted": firmware.admits(d.get("ver"), command) if d else None,
                  "lacks": firmware.lacks(d.get("ver"), command) if d else None,
-                 "private_mismatch": actions.private_mismatch(ctx.store, d, command) if d else None}
+                 "private_mismatch": actions.private_mismatch(ctx.store, d, command) if d else None,
+                 "mesh_refusal": denylist.mesh_refusal(command, mesh_only=firmware.device_mesh_only(d)),
+                 "mesh_fits": len(command.encode("utf-8")) <= mesh.MAX_COMMAND,
+                 "mesh_only": firmware.device_mesh_only(d) if d else None}
 
 
 def build_command(_ctx, _p, _q, body):

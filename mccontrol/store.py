@@ -35,6 +35,11 @@ DEFAULT_CONFIG = {
     "password": "",
     "ttl_secs": envelope.DEFAULT_TTL_SECS,
     "wait_secs": 20,
+    # The mesh road (OTM-2): your own companion radio, `tcp:HOST:PORT`, `serial:PORT` or
+    # `ble:ADDRESS`; empty until set. The auto road takes the mesh when a node has not been
+    # heard over MQTT for `mesh_after_mins` (the firmware's own auto opens after 15).
+    "companion": "",
+    "mesh_after_mins": 15,
     # Statistics come from a Beacon server (read-only HTTP, no credentials); one URL, since
     # one Beacon covers a country, and another region's Beacon is this one setting.
     "beacon_url": "https://beacon.meshcoresverige.se/api/v1",
@@ -429,9 +434,10 @@ class Store:
         return [(k, v["reply"], v["at"]) for k, v in
                 sorted(reads.items(), key=lambda kv: (kv[1]["at"], kv[1].get("seq", 0)), reverse=True)]
 
-    def record(self, node, command, topic, result, note=""):
-        """One line per command sent: what, where, and what came back (or nothing)."""
-        line = {"at": _now(), "command": command, "topic": topic,
+    def record(self, node, command, topic, result, note="", road="mqtt"):
+        """One line per command sent: what, where, by which road (`mqtt` or `mesh`), and what
+        came back (or nothing)."""
+        line = {"at": _now(), "command": command, "topic": topic, "road": road,
                 "code": None if result is None else result.code,
                 "code_name": None if result is None else result.code_name,
                 "reply": None if result is None else result.reply,
@@ -443,6 +449,7 @@ class Store:
             changes = {"last_sent": line["at"], "last_result": (None if result is None else result.code_name)}
             if result is not None:
                 changes["last_heard"] = line["at"]      # any answer, a refusal too, proves it is there
+                changes[f"last_heard_{road}"] = line["at"]      # the auto road asks which way it came
             self.update_device(node, **changes)
         return line
 
@@ -457,6 +464,7 @@ class Store:
             except ValueError:
                 continue
             line.setdefault("verified", None)       # a line from before signatures were kept: unknown
+            line.setdefault("road", "mqtt")         # before the mesh road, every line went over MQTT
             lines.append(line)
         return lines[-limit:] if limit else lines          # None: every line
 

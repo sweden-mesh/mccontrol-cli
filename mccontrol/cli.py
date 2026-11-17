@@ -54,6 +54,10 @@ def build_parser():
     c.add_argument("--tls", choices=("on", "off"), help="TLS to the broker (the command plane is TLS on 8883)")
     c.add_argument("--wait-secs", type=int)
     c.add_argument("--columns", help="the directory's optional columns, comma-separated: reg,sent,batt,seen,ver,result")
+    c.add_argument("--companion", metavar="SPEC",
+                   help="your companion radio for the mesh road: tcp:HOST:PORT, serial:PORT[:BAUD] or ble:ADDRESS; '' clears it")
+    c.add_argument("--mesh-after-mins", type=int, metavar="N",
+                   help="--via auto takes the mesh when a node has not been heard over MQTT for N minutes (15)")
     a = sub.add_parser("add", help="remember a device")
     a.add_argument("name")
     a.add_argument("node", help="the first 8 hex characters of its public key (a whole key is fine)")
@@ -68,6 +72,8 @@ def build_parser():
     s.add_argument("--all", action="store_true", help="every node in that region at once")
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
+    s.add_argument("--via", choices=("mqtt", "mesh", "auto"), default="mqtt",
+                   help="the road: mqtt (default); mesh, through your companion (one node, <= 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable")
     sub.add_parser("groups", help="list your device groups and their members")
     gp = sub.add_parser("group", help="make and change a device group, or send a command to every device in it")
     gp.add_argument("action", choices=("create", "delete", "add", "remove", "show", "send"))
@@ -75,6 +81,7 @@ def build_parser():
     gp.add_argument("words", nargs="*", help="devices (create, add, remove) or the command (send)")
     gp.add_argument("--dry-run", action="store_true", help="send: sign and print, send nothing")
     gp.add_argument("--yes", action="store_true", help="send: do not ask about a command that takes something away")
+    gp.add_argument("--via", choices=("mqtt", "mesh", "auto"), default="mqtt", help="send: the road, as for 'send'")
     g = sub.add_parser("regions", help="read a device's region map")
     g.add_argument("device")
     al = sub.add_parser("alt", help="send shortcut n (Alt+n in the interface) to a device")
@@ -249,6 +256,8 @@ def _config(api, args):
     changes["wait_secs"] = args.wait_secs
     changes["beacon_url"] = args.beacon_url
     changes["columns"] = args.columns.split(",") if args.columns else None
+    changes["companion"] = args.companion
+    changes["mesh_after_mins"] = args.mesh_after_mins
     if args.region_broker:
         pairs = [p.partition("=") for p in args.region_broker]
         if any(not sep for _r, sep, _h in pairs):
@@ -322,8 +331,12 @@ def _send(api, args, command=None):
         if input().strip().lower() != "y":
             print("not sent")
             return 2
+    via = getattr(args, "via", "mqtt")
+    if via == "mesh" and args.all:
+        raise ApiError("refused", "the mesh road goes to one node at a time; a broadcast goes over MQTT", 0)
     job = _job(api, api.start_send(command, devices=None if args.all else [device["node"]], region=region,
-                                   dry_run=args.dry_run, confirm=True), quiet=args.dry_run)
+                                   dry_run=args.dry_run, confirm=True, via=None if via == "mqtt" else via),
+               quiet=args.dry_run)
     if job is None:
         return 130
     print("\n".join(job["result"]["lines"]))
@@ -380,7 +393,8 @@ def _group_send(api, args):
         if input().strip().lower() != "y":
             print("not sent")
             return 2
-    job = _job(api, api.start_send(command, group=group["name"], dry_run=args.dry_run, confirm=True), quiet=args.dry_run)
+    job = _job(api, api.start_send(command, group=group["name"], dry_run=args.dry_run, confirm=True,
+                                   via=None if args.via == "mqtt" else args.via), quiet=args.dry_run)
     if job is None:
         return 130
     if args.dry_run:
@@ -601,7 +615,7 @@ def _history(api, args):
     for line in api.history(_device(api, args.device)["node"], limit=args.limit)["history"]:
         out = (_signed(line["reply"], line["verified"]) if line["code"] == 0 else
                f"refused {line['code_name']}" if line["code"] is not None else "no answer")
-        print(f"{line['at']}  {line['command']:34} {out}")
+        print(f"{line['at']}  {line.get('road', 'mqtt'):4} {line['command']:34} {out}")
     return 0
 
 

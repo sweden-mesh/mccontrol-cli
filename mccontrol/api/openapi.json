@@ -1945,6 +1945,15 @@
       "additionalProperties": {
        "type": "string"
       }
+     },
+     "companion": {
+      "type": "string",
+      "description": "your own companion radio for the mesh road: tcp:HOST:PORT, serial:PORT[:BAUD] or ble:ADDRESS; empty until set",
+      "example": "tcp:10.0.0.5:5000"
+     },
+     "mesh_after_mins": {
+      "type": "integer",
+      "description": "the auto road takes the mesh when a node has not been heard over MQTT for this many minutes (default 15, as the firmware's own auto)"
      }
     },
     "description": "The control broker and how long to wait; command sets and shortcuts have their own routes.",
@@ -2046,6 +2055,15 @@
        "VGR": "mqtt.meshcore-vgr.se",
        "GOT": null
       }
+     },
+     "companion": {
+      "type": "string",
+      "description": "your own companion radio for the mesh road: tcp:HOST:PORT, serial:PORT[:BAUD] or ble:ADDRESS; empty until set",
+      "example": "tcp:10.0.0.5:5000"
+     },
+     "mesh_after_mins": {
+      "type": "integer",
+      "description": "the auto road takes the mesh when a node has not been heard over MQTT for this many minutes (default 15, as the firmware's own auto)"
      }
     },
     "description": "Only the fields given change; an unknown field is a 400.",
@@ -2288,6 +2306,21 @@
       "type": "string",
       "description": "the broker this device is reached through: its region's own, or the shared broker",
       "example": "mqtt-meshcore.louie.se"
+     },
+     "mesh_only": {
+      "type": "boolean",
+      "nullable": true,
+      "description": "set by hand: the node has no Wi-Fi or MQTT and takes commands over the mesh alone; null: read from its version (an rc image without -observer)"
+     },
+     "last_heard_mqtt": {
+      "type": "string",
+      "nullable": true,
+      "description": "the last answer that came over MQTT"
+     },
+     "last_heard_mesh": {
+      "type": "string",
+      "nullable": true,
+      "description": "the last answer that came over the mesh"
      }
     },
     "example": {
@@ -2425,6 +2458,15 @@
      },
      "notes": {
       "type": "string"
+     },
+     "mesh_only": {
+      "type": "boolean",
+      "nullable": true,
+      "description": "true: mesh only (signed for meshcore/mesh/{KEY}/cmd, never sent over MQTT); false: not; null: from its version"
+     },
+     "key": {
+      "type": "string",
+      "description": "the node's whole public key, 64 hex, starting with its id: the mesh road needs it"
      }
     },
     "example": {
@@ -2506,6 +2548,14 @@
       "type": "boolean",
       "nullable": true,
       "description": "true: signed by the node; false: BAD SIGNATURE; null: unsigned, no answer, or a line from before this was kept"
+     },
+     "road": {
+      "type": "string",
+      "enum": [
+       "mqtt",
+       "mesh"
+      ],
+      "description": "which road the command took; lines from before the mesh road are mqtt"
      }
     },
     "required": [
@@ -2855,6 +2905,20 @@
       "type": "string",
       "nullable": true,
       "description": "for trigger private <key>: why no answer can come when the asking node and the target speak different private-test sub-types (0xF0 from lou-14, 0x04 before); null when they agree or a version is unknown"
+     },
+     "mesh_refusal": {
+      "type": "string",
+      "nullable": true,
+      "description": "why the node would refuse the command over the mesh road (the repair allowance travels there; a mesh-only device refuses what needs an uplink); null when it travels"
+     },
+     "mesh_fits": {
+      "type": "boolean",
+      "description": "whether the command fits the mesh road's 59 bytes"
+     },
+     "mesh_only": {
+      "type": "boolean",
+      "nullable": true,
+      "description": "whether the device is mesh only; null without a device"
      }
     },
     "example": {
@@ -3511,6 +3575,16 @@
      },
      "wait_secs": {
       "type": "number"
+     },
+     "via": {
+      "type": "string",
+      "enum": [
+       "mqtt",
+       "mesh",
+       "auto"
+      ],
+      "default": "mqtt",
+      "description": "the road: mqtt (the default); mesh, through your companion (one node at a time, the command at most 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh for a mesh-only node, a command only the mesh admits, or a node not heard over MQTT for mesh_after_mins, else MQTT and the mesh if the broker cannot be reached, and MQTT again when the node answers mesh-closed"
      }
     },
     "description": "Exactly one target: devices, tagged (the tagged devices), group (its members, one by one), or region (one broadcast).",

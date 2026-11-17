@@ -213,9 +213,9 @@ class Client:
         return self.call("POST", f"/jobs/{verb}", body={k: v for k, v in body.items() if v is not None})
 
     def start_send(self, command, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
-                   group=None):
+                   group=None, via=None):
         return self._start("send", command=command, devices=devices, tagged=tagged, region=region, group=group,
-                           dry_run=dry_run, confirm=confirm, wait_secs=wait_secs)
+                           dry_run=dry_run, confirm=confirm, wait_secs=wait_secs, via=via)
 
     def start_run_set(self, name, arg=None, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
                       group=None):

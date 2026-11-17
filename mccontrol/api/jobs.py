@@ -12,7 +12,7 @@ import itertools
 import threading
 import uuid
 
-from .. import actions, beacon, denylist, envelope, store as _store, transport
+from .. import actions, beacon, denylist, envelope, firmware, mesh, store as _store, transport
 from .errors import ApiError, bad, classify, not_found
 from .routes import device_of, devices_of
 
@@ -196,10 +196,38 @@ def _wait(body):
     return w
 
 
-def _vet(ctx, commands_, region, body):
-    """The deny list, the broadcast rule and the cautions, before anything is signed."""
+def _via(body, devices=None, region=None):
+    """The road asked for: mqtt (the default), mesh or auto. The mesh goes to one node at a
+    time, so never with a region."""
+    via = body.get("via", "mqtt")
+    if via not in actions.ROADS:
+        raise bad(f"via is one of {', '.join(actions.ROADS)}")
+    if via == "mesh" and region:
+        raise ApiError(400, "refused", "the mesh road goes to one node at a time; a broadcast goes over MQTT")
+    return via
+
+
+def _refusal(command, via, devices):
+    """Why every road `via` may take would refuse `command`, or None. Over the mesh the repair
+    allowance travels and a mesh-only node refuses what needs an uplink; auto refuses only
+    what both roads refuse."""
+    if via == "mqtt" or not devices:
+        return denylist.refusal(command)
+    for d in devices:
+        only = firmware.device_mesh_only(d)
+        on_mesh = denylist.mesh_refusal(command, mesh_only=only)
+        if on_mesh is None and len(command.encode("utf-8")) > mesh.MAX_COMMAND:
+            on_mesh = f"over the mesh a command is 1..{mesh.MAX_COMMAND} bytes"
+        why = on_mesh if via == "mesh" or only else (on_mesh and denylist.refusal(command))
+        if why:
+            return why
+    return None
+
+
+def _vet(ctx, commands_, region, body, devices=None, via="mqtt"):
+    """The deny list (the road's), the broadcast rule and the cautions, before anything is signed."""
     for command in commands_:
-        why = denylist.refusal(command)
+        why = _refusal(command, via, devices)
         if why:
             raise ApiError(400, "refused", f"the node would refuse {command!r}: {why}")
         if region and envelope.is_transmit(command):
@@ -224,7 +252,8 @@ def start_send(ctx, _p, _q, body):
     if not command:
         raise bad("command is required")
     devices, region = _targets(ctx, body)
-    _vet(ctx, [command], region, body)
+    via = _via(body, devices, region)
+    _vet(ctx, [command], region, body, devices, via)
     dry, wait = bool(body.get("dry_run")), _wait(body)
     group = body.get("group")
     store = ctx.store
@@ -250,8 +279,8 @@ def start_send(ctx, _p, _q, body):
             text = lambda _n, a=answered, label=label, i=i: f"{a} of {len(devices)} answered; waiting for {label} ({i + 1} of {len(devices)})"
             try:
                 topic, _pl, answers, l = actions.send(store, command, device=d, dry_run=dry, wait_secs=wait,
-                                                      progress=ticker(job, text), script=ctx.script)
-            except envelope.EnvelopeError as exc:
+                                                      progress=ticker(job, text), script=ctx.script, via=via)
+            except (envelope.EnvelopeError, mesh.MeshError) as exc:
                 if not group:
                     raise
                 job.land({"node": d["node"], "name": label, "command": command, "ok": False, "code": None,
