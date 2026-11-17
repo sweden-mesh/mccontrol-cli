@@ -28,6 +28,9 @@ The sets are taken from the firmware's own history (`src/helpers/MqttControlLogi
   lou-17  a command may hold UTF-8 (`set name SE-JKP-Väster`); before it, printable ASCII
           only, and the broker counted anything else as malformed toward a lockout.
   lou-19  lou-14's and `ota update`, to one node (operator 2026-11-17); before it denied.
+          From lou-19 an `rc` image also takes the plane's commands over the mesh (OTM-1),
+          and an `rc` image without the Observer bridge (no `-observer` in its version)
+          takes them over the mesh alone: it is "mesh only".
 """
 import re
 
@@ -66,6 +69,9 @@ V2_FROM = 13
 # The first revision that admits UTF-8 in a command (åäö in a name). The broker plugin that
 # passes it must be live before any node runs it.
 UTF8_FROM = 17
+
+# The first revision whose `rc` image takes a signed command over the mesh (OTM-1).
+MESH_FROM = 19
 
 
 def revision(version_text):
@@ -191,3 +197,25 @@ def admits_utf8(version_text):
     """Does a node on `version_text` take a command that is not plain ASCII? Unknown: no."""
     rev = revision(version_text)
     return rev is not None and rev >= UTF8_FROM
+
+
+def speaks_mesh(version_text):
+    """Does a node on `version_text` take the plane's commands over the mesh? True from lou-19
+    with the plane, False when the version says otherwise, None when it is not known."""
+    rev = revision(version_text)
+    if rev is None:
+        return None
+    return rev >= MESH_FROM and has(version_text, "rc")
+
+
+def mesh_only(version_text):
+    """Is the image a mesh-only one: the plane (`rc`) without the Observer bridge, so no Wi-Fi
+    and no MQTT? Only a lou version names its features; anything else is not."""
+    text = (version_text or "").lower()
+    return "-lou-" in text and has(version_text, "rc") and "-observer" not in text
+
+
+def device_mesh_only(device):
+    """A device's own `mesh_only` flag when set, else what its version says."""
+    flag = (device or {}).get("mesh_only")
+    return bool(flag) if flag is not None else mesh_only((device or {}).get("ver"))

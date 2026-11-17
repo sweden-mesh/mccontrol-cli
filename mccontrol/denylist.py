@@ -124,3 +124,45 @@ def refusal(command):
         if (low == verb) if exact else _boundary(text, verb):
             return None
     return "not a command the control plane admits"
+
+
+# -- the mesh road (OTM-1 firmware, lou-19; operator ruling 2026-11-16) ------------------------
+#
+# Over the mesh a command is encrypted to the node, so the road may repair a broken uplink: the
+# Wi-Fi network and its password, and the command slot pointed at a broker
+# (`mqttCtrlMeshAllowance`). Matched as the node's CLI matches, case and all, and only with a
+# value: `set wifi.pwdx` and a bare `set wifi.ssid` stay denied. Everything else denied stays
+# denied on both roads. `reboot`, to apply the repair, is admitted on both already.
+MESH_ALLOWANCE_WITH_VALUE = ("set wifi.ssid ", "set wifi.pwd ", "set mqtt.cmd on ")
+MESH_ALLOWANCE_EXACT = ("set mqtt.cmd on",)
+
+# A mesh-only node (an `rc`/`arrc` image without the Observer bridge) has no Wi-Fi and no MQTT:
+# the allowance repairs an uplink it has none of, and these need one
+# (`mqttCtrlNeedsUplink`, matched whole, any case). The node answers them not-allowed (14).
+NEEDS_UPLINK = ("ota check", "ota update", "mqtt.cmd ping")
+MESH_ONLY_WHY = "a mesh-only node has no Wi-Fi or MQTT; the firmware refuses it there (not-allowed)"
+
+
+def mesh_allowed(command):
+    """Is `command` on the mesh road's repair allowance (with an uplink)?"""
+    text = command or ""
+    return (any(len(text) > len(p) and text.startswith(p) for p in MESH_ALLOWANCE_WITH_VALUE)
+            or text in MESH_ALLOWANCE_EXACT)
+
+
+def needs_uplink(command):
+    return " ".join((command or "").split()).lower() in NEEDS_UPLINK
+
+
+def mesh_refusal(command, mesh_only=False):
+    """Why the firmware will refuse `command` over the mesh road, or None when it travels.
+
+    With an uplink the road admits the deny list's admissions and the repair allowance; on a
+    mesh-only node the deny list in full, less what needs an uplink."""
+    if mesh_only:
+        if needs_uplink(command) or mesh_allowed(" ".join((command or "").split())):
+            return f"denied: {MESH_ONLY_WHY}"
+        return refusal(command)
+    if mesh_allowed(" ".join((command or "").split())):
+        return None
+    return refusal(command)
