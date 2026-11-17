@@ -86,7 +86,7 @@ mccontrol                                         # the screens: Monolith, or th
 ```
 
 Python 3.10 or newer; `pycryptodome` (Ed25519) and `paho-mqtt`; `curses` from the standard
-library. 80x24 is the minimum; wider terminals get wider panels, and on a narrow one each
+library; `meshcore` for the mesh road only (`pip install 'mccontrol[mesh]'`). 80x24 is the minimum; wider terminals get wider panels, and on a narrow one each
 interface's directory-columns setting (or `mccontrol config --columns ver,result`) picks which
 columns the directory shows.
 
@@ -140,6 +140,7 @@ mccontrol reads loutest                  # what it last answered to each read, w
 mccontrol commands [device]              # the command table; with a device, what its firmware lacks is marked
 mccontrol history loutest                # a forged reply says BAD SIGNATURE, an unsigned one (unsigned)
 mccontrol group send canary ver          # each device of a group in turn; mccontrol groups lists them
+mccontrol send loutest ver --via mesh    # over LoRa through your companion; --via auto picks the road
 mccontrol devices | add | remove | discover | key | keygen | config | test | help
 ```
 
@@ -157,6 +158,49 @@ apply`. A board without PSRAM runs two MQTT slots at once; with both analyzer up
 says so and asks you to turn one off (`set mqtt2.preset none`) rather than doing it for you.
 Then `mccontrol register` once per key, so the broker checks your commands before they fan out.
 For a region with its own broker, see the next section.
+
+## Repair a node over the mesh
+
+When a node's Wi-Fi or MQTT fails it drops off the control plane, but its radio is still on the
+mesh. From lou-19 a node with the plane (`rc`) also takes your signed commands as a MeshCore
+anonymous request (sub-type `0xC1`), sent through your own companion radio with
+[meshcore_py](https://pypi.org/project/meshcore/) (`pip install 'mccontrol[mesh]'`). The same key,
+signature and counter as on MQTT, so a command delivered both ways runs once; the answer comes
+back over the air, encrypted to you by the node. `mccontrol help mesh` is the same text.
+
+**Switch on while it works.** The node's `mqtt.cmd.mesh` is `auto` by default: the road opens
+once MQTT has been down 15 minutes (`on` keeps it open, `off` shuts it; set on the console only).
+Check it now with `mccontrol group send <group> get mqtt.cmd.mesh`. Each device needs its whole
+public key (discovery stores it; `PATCH /devices/{ref}` with `key` otherwise). Set your companion
+once: `mccontrol config --companion tcp:HOST:PORT` (or `serial:/dev/ttyACM0`, `ble:ADDRESS`).
+
+**The recipe.**
+
+```
+mccontrol send loutest set wifi.ssid HomeNet --via mesh      # or set wifi.pwd, or:
+mccontrol send loutest set mqtt.cmd on mqtt-meshcore.louie.se --via mesh
+mccontrol send loutest reboot --via mesh                     # answers nothing: it restarts first
+mccontrol send loutest ver                                   # a few minutes later: back on MQTT?
+```
+
+Over the mesh the plane admits what it admits over MQTT and, only there, the repair
+(operator ruling 2026-11-16): `set wifi.ssid <v>`, `set wifi.pwd <v>`, `set mqtt.cmd on [<host>]`.
+Everything else denied stays denied; the command key stays serial-only. A command is at most
+59 bytes, checked before signing; one node at a time, never a region; the node answers at most
+one a minute and ten an hour this way. `mesh-closed` means its MQTT works: send it there. Silence
+is not a refusal. A node not yet a contact on the companion is made one, and its first request
+floods once; the answer teaches the companion a path, and the next goes direct.
+
+`--via auto` takes the mesh for a mesh-only node, a command only the mesh admits, a node whose
+status Beacon (else its last MQTT answer) has not seen for `mesh_after_mins` (15), or a broker
+that cannot be reached; otherwise MQTT, and MQTT again after a `mesh-closed`. History records
+the road of every command (`mqtt` or `mesh`).
+
+A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a
+device's `mesh_only` flag) takes commands over the mesh alone, signed for
+`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update` and `mqtt.cmd ping`.
+The bytes are in `planning/firmware/otm-wire-format-20261117.md` of the workspace and pinned, with
+that document's worked vectors, in `web/test/vectors.json` (`mesh`).
 
 ## Your own region
 
@@ -231,7 +275,8 @@ the next login signs its token for the name the broker accepts.
 ```
 ~/.config/mccontrol/
     key.seed            your private seed, mode 600
-    config.json         the control brokers, where the key is registered, how long to wait
+    config.json         the control brokers, where the key is registered, how long to wait,
+                        your companion for the mesh road
     devices.json        your devices, each with its region
     groups.json         your device groups: name -> the devices in it
     history/<node>.jsonl

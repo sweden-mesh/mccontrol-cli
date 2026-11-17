@@ -1,0 +1,62 @@
+Repair a node over the mesh
+
+When a repeater's Wi-Fi or MQTT fails -- a new Wi-Fi password, a moved
+access point, a renamed broker -- it drops off the control plane, but its
+radio is still on the mesh. From lou-19 a node with the plane (rc) also
+takes your signed commands as a LoRa request, sent through your own
+companion radio. Same key, same signature, same counter: a command
+delivered both ways runs once. The answer comes back over the air.
+
+Switch on while it works
+  The node's mesh road is the setting mqtt.cmd.mesh: auto (the default)
+  opens it once MQTT has been down 15 minutes; on keeps it open; off
+  shuts it. Check it now, while MQTT works: send "get mqtt.cmd.mesh".
+  If a node says off, set it on its console. A device group (see
+  [[cli]]) reads it from every node in one go.
+  Make sure each device has its whole public key (discovery stores it):
+  the request is encrypted to that key.
+  Set your companion once:
+    mccontrol config --companion tcp:10.0.0.5:5000
+    (or serial:/dev/ttyACM0, or ble:AA:BB:CC:DD:EE:FF)
+
+The recipe
+  1. Connect your companion, in reach of the node or of the mesh.
+  2. Send the repair over the mesh:
+       mccontrol send loutest set wifi.ssid HomeNet --via mesh
+       mccontrol send loutest set wifi.pwd s3cret --via mesh
+     or point the command slot at the broker:
+       mccontrol send loutest set mqtt.cmd on mqtt-meshcore.louie.se --via mesh
+  3. Reboot to apply it:  mccontrol send loutest reboot --via mesh
+     A reboot answers nothing; the node restarts first.
+  4. Confirm on MQTT, a few minutes later:  mccontrol send loutest ver
+
+What the mesh road admits
+  Everything the plane admits over MQTT, and only here the repair:
+  set wifi.ssid, set wifi.pwd (each with a value), set mqtt.cmd on and
+  set mqtt.cmd on <host>. Everything else denied stays denied. A command
+  is at most 59 bytes, checked before it is signed. One node at a time,
+  never a region; the node answers at most one command a minute and ten
+  an hour this way, since each costs airtime on a shared network.
+
+Answers and silence
+  mesh-closed: the node's MQTT works, so it takes commands over MQTT;
+  send it there. Silence is not a refusal: a node on older firmware,
+  a bad signature, a replay or the minute budget all say nothing.
+  The first request to a node with no known path floods once; its
+  answer teaches your companion a path, and the next one goes direct.
+
+--via auto
+  Takes the mesh for a mesh-only node, for a command only the mesh
+  admits, for a node whose status Beacon has not seen for 15 minutes
+  (mccontrol config --mesh-after-mins), or when the broker cannot be
+  reached; otherwise MQTT. A mesh-closed answer is sent again over MQTT.
+  History says which road each command took.
+
+Mesh-only nodes
+  A node built without Wi-Fi (an rc image with no -observer in its
+  version) takes commands over the mesh alone. Its commands are signed
+  for the region named mesh, and it refuses the Wi-Fi and MQTT repair,
+  ota check, ota update and mqtt.cmd ping. The command key is set on its
+  console, as on every node.
+
+Related: [[send]], [[signing]], [[history]].

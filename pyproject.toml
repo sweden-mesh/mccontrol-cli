@@ -13,6 +13,7 @@ dependencies = ["pycryptodome>=3.19", "paho-mqtt>=2.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+mesh = ["meshcore>=2.3.9"]
 
 [project.scripts]
 mccontrol = "mccontrol.cli:main"

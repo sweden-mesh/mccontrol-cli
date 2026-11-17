@@ -18,4 +18,4 @@ repeater admits, see [[commands]]. A refusal is explained in words:
 "rate-limited" means wait a few minutes; "sig-invalid" means the node
 holds a different public key than yours (see [[signing]]).
 
-Related: [[history]], [[protocol]].
+Related: [[history]], [[protocol]], [[mesh]] (a node off MQTT).
