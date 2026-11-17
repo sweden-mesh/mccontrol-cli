@@ -243,6 +243,8 @@ def test_a_send_is_refused_before_anything_is_signed(api):
     assert status == 400 and "transmits" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "ota update", "region": "JKG"})
     assert status == 400 and "one node at a time" in body["error"]["message"]
+    status, body = call(url, "POST", "/jobs/send", {"command": "reboot", "region": "JKG"})
+    assert status == 400 and "one node at a time" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "region denyf *", "devices": ["gisebo"]})
     assert status == 409 and body["error"]["code"] == "confirm_required" and "no scope" in body["error"]["message"]
     assert body["error"]["cautions"] == [{"command": "region denyf *", "caution": body["error"]["cautions"][0]["caution"]}]

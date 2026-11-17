@@ -84,3 +84,10 @@ def test_ota_update_travels_bare_to_one_node_and_never_as_a_broadcast():
     assert "one node at a time" in denylist.broadcast_refusal("  OTA   update ")
     assert denylist.broadcast_refusal("ota check") is None
     assert denylist.broadcast_refusal("region put se-jkp *") is None
+
+
+def test_reboot_travels_to_one_node_and_never_as_a_broadcast():
+    assert denylist.refusal("reboot") is None
+    assert "one node at a time" in denylist.broadcast_refusal(" Reboot ")
+    assert denylist.broadcast_refusal("reboot now") is None        # denied outright, not a verb
+    assert denylist.broadcast_refusal("clkreboot") is None

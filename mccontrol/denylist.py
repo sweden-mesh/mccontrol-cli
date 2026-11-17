@@ -70,10 +70,11 @@ VERBS = (
 )
 
 # What the broadcast topic refuses besides a transmit (`mqttCtrlBroadcastRefused`, lou-19):
-# `ota update` restarts every node it reaches, so one publish would take a region off the air
-# at once. The node answers it `broadcast-transmit`, as it does a broadcast trigger.
-BROADCAST_REFUSED = ("ota update",)
-BROADCAST_REFUSED_WHY = ("a firmware update restarts the node, so it goes to one node at a time; "
+# `ota update` and `reboot` (operator 2026-11-17) restart every node they reach, so one publish
+# would take a region off the air at once. The node answers them `broadcast-transmit`, as it
+# does a broadcast trigger.
+BROADCAST_REFUSED = ("ota update", "reboot")
+BROADCAST_REFUSED_WHY = ("it restarts the node, so it goes to one node at a time; "
                          "the firmware refuses it as a broadcast, and so does this")
 
 
