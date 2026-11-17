@@ -139,7 +139,7 @@ def data():
             "default_sets": store.DEFAULT_SETS,
         },
         "protocol.json": {
-            "_source": _source("mccontrol/envelope.py", "mccontrol/token.py"),
+            "_source": _source("mccontrol/envelope.py", "mccontrol/token.py", "mccontrol/mesh.py"),
             "topic_prefix": envelope.TOPIC_PREFIX,
             "field_sep": envelope.FIELD_SEP,
             "v1": envelope.VERSION_TAG, "v2": envelope.V2_TAG,
@@ -156,6 +156,8 @@ def data():
             "register_topic": envelope.REGISTER_TOPIC, "register_version": envelope.REGISTER_VERSION,
             "token": {"username_prefix": token.USERNAME_PREFIX, "lifetime_secs": token.LIFETIME_SECS,
                       "client": token.CLIENT},
+            "mesh": MESH_CONSTANTS,
+            "_mesh_layout": MESH_LAYOUT,
         },
     }
 
@@ -321,11 +323,14 @@ def vectors():
     return out
 
 
-# The mesh road's constants, in the vectors until the browser's protocol module takes them (W-16).
+# The mesh road's constants, in protocol.json beside the browser's lib/protocol/constants.js (W-16);
+# the layout sentences are for the reader, not pinned.
 MESH_CONSTANTS = {
     "subtype": mesh.SUBTYPE, "cmd_send_anon_req": mesh.CMD_SEND_ANON_REQ,
     "max_command": mesh.MAX_COMMAND, "head": mesh.HEAD, "response_head": mesh.RESPONSE_HEAD,
     "mesh_only_region": mesh.MESH_ONLY_REGION, "clock_set_from": mesh.CLOCK_SET_FROM,
+}
+MESH_LAYOUT = {
     "request": "subtype(1) | counter(4 LE) | expiry(4 LE) | raw Ed25519 signature(64) | command UTF-8; "
                "the companion prepends its 4-byte tag",
     "response": "after the tag: node clock(4 LE, unset below clock_set_from) | counter(4 LE) | "
@@ -388,7 +393,7 @@ def _mesh_vectors():
         responses.append({"data": hex_, "counter": counter,
                           "result": None if r is None else {"counter": r.counter, "code": r.code,
                                                             "reply": r.reply, "clock": r.clock}})
-    return {"constants": MESH_CONSTANTS, "doc_seed": DOC_SEED, "doc_node_seed": DOC_NODE_SEED,
+    return {"doc_seed": DOC_SEED, "doc_node_seed": DOC_NODE_SEED,
             "doc_public_key": envelope.public_key_hex(DOC_SEED), "doc_node_key": doc_node,
             "worked": worked, "requests": requests, "too_long": too_long, "responses": responses,
             "refusal": [{"command": c, "uplink": denylist.mesh_refusal(c), "mesh_only": denylist.mesh_refusal(c, mesh_only=True)}

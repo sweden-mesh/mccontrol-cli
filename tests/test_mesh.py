@@ -71,7 +71,8 @@ def test_the_vectors_for_the_browser_carry_the_documents_bytes():
     v = webexport.vectors()["mesh"]
     assert v["worked"][0]["plaintext"] == DOC_PLAINTEXT
     assert v["worked"][1]["signature"] == MESH_ONLY_SIG
-    assert v["constants"]["max_command"] == 59 and v["constants"]["subtype"] == 0xC1
+    c = webexport.data()["protocol.json"]["mesh"]
+    assert c["max_command"] == 59 and c["subtype"] == 0xC1
 
 
 # -- the allowance and the refusals --------------------------------------------------------
