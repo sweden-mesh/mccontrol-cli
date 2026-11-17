@@ -33,7 +33,9 @@ The recipe
 What the mesh road admits
   Everything the plane admits over MQTT, and only here the repair:
   set wifi.ssid, set wifi.pwd (each with a value), set mqtt.cmd on and
-  set mqtt.cmd on <host>. Everything else denied stays denied. A command
+  set mqtt.cmd on <host>. The broker slots' settings (set mqttN.*) travel
+  too, so a broken Observer feed can be repaired over the mesh as well.
+  Everything else denied stays denied. A command
   is at most 59 bytes, checked before it is signed. One node at a time,
   never a region; the node answers at most one command a minute and ten
   an hour this way, since each costs airtime on a shared network.
@@ -56,7 +58,8 @@ Mesh-only nodes
   A node built without Wi-Fi (an rc image with no -observer in its
   version) takes commands over the mesh alone. Its commands are signed
   for the region named mesh, and it refuses the Wi-Fi and MQTT repair,
-  ota check, ota update and mqtt.cmd ping. The command key is set on its
+  ota check, ota update, mqtt.cmd ping and the broker slots' settings
+  (set mqttN.*). The command key is set on its
   console, as on every node.
 
 Related: [[send]], [[signing]], [[history]].

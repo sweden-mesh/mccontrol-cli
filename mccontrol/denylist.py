@@ -10,6 +10,8 @@ A node on firmware older than 2026-10-08 admits far less (an allowlist of fourte
 entries); it answers `not-allowed` to the rest, and the tool reports that as the node did.
 """
 
+import re
+
 # Families: the boundary rule (end of string, a space or a dot after the prefix).
 DENIED_FAMILIES = (
     ("set prv.key", "identity: a changed key is a different node"),
@@ -138,8 +140,11 @@ MESH_ALLOWANCE_EXACT = ("set mqtt.cmd on",)
 
 # A mesh-only node (an `rc`/`arrc` image without the Observer bridge) has no Wi-Fi and no MQTT:
 # the allowance repairs an uplink it has none of, and these need one
-# (`mqttCtrlNeedsUplink`, matched whole, any case). The node answers them not-allowed (14).
+# (`mqttCtrlNeedsUplink`, matched whole, any case), as do the broker slots' settings: this prefix,
+# a slot digit and a dot (`set mqtt1.preset ...`, not `set mqtt.cmd`). The node answers them
+# not-allowed (14).
 NEEDS_UPLINK = ("ota check", "ota update", "mqtt.cmd ping")
+NEEDS_UPLINK_SLOT_PREFIX = "set mqtt"
 MESH_ONLY_WHY = "a mesh-only node has no Wi-Fi or MQTT; the firmware refuses it there (not-allowed)"
 
 
@@ -151,7 +156,9 @@ def mesh_allowed(command):
 
 
 def needs_uplink(command):
-    return " ".join((command or "").split()).lower() in NEEDS_UPLINK
+    text = " ".join((command or "").split()).lower()
+    return (text in NEEDS_UPLINK or (text.startswith(NEEDS_UPLINK_SLOT_PREFIX)
+                                     and re.match(r"[0-9]\.", text[len(NEEDS_UPLINK_SLOT_PREFIX):]) is not None))
 
 
 def mesh_refusal(command, mesh_only=False):

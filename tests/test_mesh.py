@@ -93,11 +93,21 @@ def test_everything_else_denied_stays_denied_over_the_mesh(command):
 
 
 @pytest.mark.parametrize("command", ["ota check", "OTA UPDATE", "mqtt.cmd ping", "set wifi.ssid HomeNet",
-                                     "set mqtt.cmd on"])
+                                     "set mqtt.cmd on", "set mqtt1.preset meshat.se", "SET MQTT6.PORT 1883"])
 def test_a_mesh_only_node_refuses_what_needs_an_uplink(command):
     assert "mesh-only" in denylist.mesh_refusal(command, mesh_only=True)
     assert denylist.mesh_refusal("get name", mesh_only=True) is None
     assert denylist.mesh_refusal("set prv.key 00", mesh_only=True)
+
+
+@pytest.mark.parametrize("command", ["set mqtt.iata GOT", "set mqtt1", "set mqttx.preset a", "get mqtt1.server"])
+def test_only_a_broker_slots_setting_needs_an_uplink(command):
+    assert not denylist.needs_uplink(command)
+
+
+def test_with_an_uplink_the_mesh_road_reaches_the_broker_slots():
+    assert denylist.mesh_refusal("set mqtt1.preset meshat.se") is None
+    assert denylist.mesh_refusal("set mqtt2.server mqtt.example.org") is None
 
 
 def test_mesh_only_is_read_from_the_version_or_the_devices_flag():

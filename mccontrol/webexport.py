@@ -71,11 +71,13 @@ def data():
                 "rule": "see denylist.mesh_refusal: with an uplink, a command (runs of space made one) that "
                         "starts with a with_value prefix and has more after it, or equals an exact entry, "
                         "case-sensitive, travels; anything else as the deny list says. On a mesh-only "
-                        "device a needs_uplink command (whole, any case) or an allowance command is refused "
+                        "device a needs_uplink command (whole, any case), a command starting with needs_uplink_slot_prefix, "
+                        "a digit and a dot (any case), or an allowance command is refused "
                         "with mesh_only_why, and the deny list applies in full",
                 "allowance_with_value": list(denylist.MESH_ALLOWANCE_WITH_VALUE),
                 "allowance_exact": list(denylist.MESH_ALLOWANCE_EXACT),
                 "needs_uplink": list(denylist.NEEDS_UPLINK),
+                "needs_uplink_slot_prefix": denylist.NEEDS_UPLINK_SLOT_PREFIX,
                 "mesh_only_why": "denied: " + denylist.MESH_ONLY_WHY,
             },
             "messages": {
@@ -406,7 +408,7 @@ MESH_CHECK_COMMANDS = (
     "set wifi.ssid HomeNet", "set wifi.ssid", "set wifi.ssid ", "set wifi.pwd s3cret", "set wifi.pwdx s3cret",
     "SET WIFI.SSID HomeNet", "set mqtt.cmd on", "set mqtt.cmd on mqtt-meshcore.louie.se", "set mqtt.cmd off",
     "set mqtt.cmd.pubkey AA", "set mqtt.cmd.mesh on", "get wifi.ssid", "get wifi.pwd", "set mqtt1.server x.se",
-    "OTA CHECK", "mqtt.cmd ping", "reboot",
+    "OTA CHECK", "mqtt.cmd ping", "reboot", "SET MQTT3.PORT 1883", "set mqttx.preset a", "set mqtt1",
 )
 
 

@@ -198,7 +198,9 @@ the road of every command (`mqtt` or `mesh`).
 
 A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a
 device's `mesh_only` flag) takes commands over the mesh alone, signed for
-`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update` and `mqtt.cmd ping`.
+`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update`, `mqtt.cmd ping` and
+the broker slots' settings (`set mqttN.*`). On an Observer node the mesh road already reaches
+those slot settings, so a broken Observer feed can be repaired over the mesh.
 The bytes are in `planning/firmware/otm-wire-format-20261117.md` of the workspace and pinned, with
 that document's worked vectors, in `web/test/vectors.json` (`mesh`).
 
