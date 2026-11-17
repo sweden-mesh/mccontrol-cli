@@ -111,6 +111,7 @@ TABLE = (
     _c("set name", "node", "text", examples=("SE-JKG-Gisebo-4AC6",)),
     _c("reboot", "node"),
     _c("clkreboot", "node"),
+    _c("ota update", "node"),
     _c("clear stats", "node"),
     _c("neighbor.remove", "node", "text", examples=("<8 or 64 hex of the neighbour>",)),
     _c("powersaving", "node", "choice", ON_OFF),

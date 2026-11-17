@@ -30,7 +30,6 @@ DENIED_FAMILIES = (
     ("get prv.key", "the private key"),
     ("erase", "destructive, no way back"),
     ("start", "the SoftAP paths (webconfig, hand-uploaded OTA) need someone at the node"),
-    ("ota update", "waits for a signed image and rollback in the firmware"),
     ("poweroff", "no way back from the road"), ("shutdown", "no way back from the road"),
     ("set bootloader.ver", "destructive"),
     ("set lat", "position is the owner's to publish, per node"), ("set lon", "position is the owner's to publish, per node"),
@@ -67,7 +66,15 @@ VERBS = (
     ("ver", True), ("reboot", True), ("clkreboot", True), ("neighbors", True),
     ("board", True), ("memory", True), ("clear stats", True), ("ota check", True),
     ("mqtt.cmd ping", True),            # ar-12: a ping to the broker and back
+    ("ota update", True),               # lou-19: one node at a time, see BROADCAST_REFUSED
 )
+
+# What the broadcast topic refuses besides a transmit (`mqttCtrlBroadcastRefused`, lou-19):
+# `ota update` restarts every node it reaches, so one publish would take a region off the air
+# at once. The node answers it `broadcast-transmit`, as it does a broadcast trigger.
+BROADCAST_REFUSED = ("ota update",)
+BROADCAST_REFUSED_WHY = ("a firmware update restarts the node, so it goes to one node at a time; "
+                         "the firmware refuses it as a broadcast, and so does this")
 
 
 def _boundary(text, prefix):
@@ -83,6 +90,13 @@ def _slot_credential_read(text):
     rest = low[9:]
     return any(rest.startswith(leaf) and (len(rest) == len(leaf) or rest[len(leaf)] in " .")
                for leaf in SLOT_CREDENTIAL_LEAVES)
+
+
+def broadcast_refusal(command):
+    """Why a command that travels to one node may not go to every node in a region, beyond
+    a transmit (`envelope.is_transmit`), or None."""
+    text = " ".join((command or "").split()).lower()
+    return BROADCAST_REFUSED_WHY if text in BROADCAST_REFUSED else None
 
 
 def refusal(command):

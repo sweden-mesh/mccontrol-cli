@@ -17,8 +17,9 @@ says why before signing, so a refused command costs no command slot:
                   alert.psk, bridge.secret, snmp.community, mqtt.email,
                   mqtt.owner, owner.info, tls*, get prv*, and a slot's
                   get mqttN.password / .token / .username
-  destructive     erase, start *, ota update, poweroff, shutdown,
-                  set bootloader.ver
+  destructive     erase, start *, poweroff, shutdown,
+                  set bootloader.ver          (ota update is fine from lou-19,
+                                              to one node at a time)
   position, role  set/get lat, set/get lon, set role, set repeat
   the radio       set freq, set radio*, set tx, set extra.sf,
                   set dutycycle, tempradio

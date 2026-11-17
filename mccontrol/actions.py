@@ -19,6 +19,8 @@ CAUTIONS = (
     # where it listens, so the person is told first.
     ("reboot", "restarts the node. It is off the air and off the control plane until it is back."),
     ("clkreboot", "restarts the node. It is off the air and off the control plane until it is back."),
+    ("ota update", "downloads the newest signed firmware and restarts the node on it. It is off the air "
+                   "for about a minute; if the new image never works, the node goes back to the old one."),
     ("set mqtt.iata", "moves the node to another region's topics: this tool must change its region to match."),
     ("set mqtt.presets", "changes how many MQTT slots run; the control plane's slot may stop."),
     ("set mqtt1*", "changes slot 1's broker or credentials; if the control plane rides this slot, it may go silent."),
@@ -97,6 +99,9 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
     if broadcast and envelope.is_transmit(command):
         raise envelope.EnvelopeError("a command that transmits may not be sent to every node; "
                                      "the firmware refuses it, and so does this")
+    if broadcast and denylist.broadcast_refusal(command):
+        raise envelope.EnvelopeError(f"{command!r} may not be sent to every node: "
+                                     f"{denylist.broadcast_refusal(command)}")
     if not command.isascii():
         if broadcast:
             raise envelope.EnvelopeError("a broadcast is plain ASCII: nodes before lou-17 refuse "

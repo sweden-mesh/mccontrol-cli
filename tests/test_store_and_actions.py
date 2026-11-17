@@ -84,6 +84,17 @@ def test_a_broadcast_of_a_transmit_command_is_refused_before_signing(store):
         actions.send(store, "trigger test", region="JKG", dry_run=True)
 
 
+def test_an_update_goes_to_one_node_never_as_a_broadcast(store):
+    store.create_key()
+    with pytest.raises(envelope.EnvelopeError, match="one node at a time"):
+        actions.send(store, "ota update", region="JKG", dry_run=True)
+    store.add_device("LOUTEST", NODE, "JKG")
+    topic, _payload, _answers, _lines = actions.send(store, "ota update", device=store.device("LOUTEST"),
+                                                     dry_run=True)
+    assert topic == "meshcore/JKG/" + NODE + "/cmd"
+    assert "restarts the node" in actions.caution("ota update")
+
+
 def test_aao_goes_only_to_a_node_whose_firmware_takes_it_and_never_as_a_broadcast(store, monkeypatch):
     store.create_key()
     store.add_device("LOUTEST", NODE, "JKG")

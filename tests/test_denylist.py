@@ -34,7 +34,7 @@ def test_each_denied_group_is_refused_with_a_reason():
         "get prv.key": "private key", "get prv.keyx": "secret", "set passwordx y": "secret",
         "get mqtt1.password": "slot", "get mqtt6.token": "slot", "get mqtt3.username x": "slot",
         "erase": "destructive", "start webconfig": "SoftAP", "start ota ap": "SoftAP",
-        "ota update": "signed image", "poweroff": "no way back", "shutdown": "no way back",
+        "poweroff": "no way back", "shutdown": "no way back",
         "set bootloader.ver 2": "destructive",
         "set lat 57.78": "position", "get lon": "position", "set role repeater": "role",
         "set repeat off": "kill switch", "set repeat on": "kill switch",
@@ -75,3 +75,12 @@ def test_cautions_cover_what_the_deny_list_newly_admits():
     assert "renames" in actions.caution("set name Foo")
     assert actions.caution("set txdelay 0.5") is None
     assert actions.caution("set repeat off") is None          # denied outright; nothing to ask
+
+
+def test_ota_update_travels_bare_to_one_node_and_never_as_a_broadcast():
+    assert denylist.refusal("ota update") is None
+    assert denylist.refusal("ota update now") is not None
+    assert denylist.refusal("ota updatex") is not None
+    assert "one node at a time" in denylist.broadcast_refusal("  OTA   update ")
+    assert denylist.broadcast_refusal("ota check") is None
+    assert denylist.broadcast_refusal("region put se-jkp *") is None

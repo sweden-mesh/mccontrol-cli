@@ -276,7 +276,7 @@ def test_7_lists_the_commands_and_greys_what_the_firmware_does_not_admit(api):
     raw = walk(api, [(b"1\r", 0.8), (b"7\r", 0.8), (b"get stats\r", 0.6), (b"1\r", 0.6)], raw=True)
     text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-B]|\x1b[=>]", " ", raw)
     assert "Select Command" in text and "-- reads --" in text
-    assert "57 greyed: need a newer build; this device reports unknown" in text
+    assert "58 greyed: need a newer build; this device reports unknown" in text
     assert re.search(r"get stats\s+needs ar-11", text) and re.search(r"get autoreply\s+yes", text)
     assert "get stats: needs ar-11; not sent." in text
     assert sent(store, "FD700369") == []
@@ -287,7 +287,7 @@ def test_7_lists_the_commands_and_greys_what_the_firmware_does_not_admit(api):
 
 def test_a_bare_command_from_the_list_is_sent_at_once(api):
     _server, _url, store = api
-    _far_on(store, "ar-11")
+    _far_on(store, "lou-19-arrc")
     api[0].ctx.script["FD700369|ver"] = [0, "> esp32s3-v1.17.1-ar-11"]
     text = walk(api, [(b"1\r", 0.8), (b"7\r", 0.8), (b"ver\r", 0.6), (b"1\r", 1.2)])
     assert "this device reports" not in text
@@ -500,7 +500,7 @@ def test_f5_on_the_command_list_asks_again_what_the_firmware_admits(api):
     try:
         text = s.drive([(b"1\r", 0.8), (b"7\r", 0.8)])
         assert re.search(r"\d+ greyed: need a newer build; this device reports ar-9", text)
-        _far_on(store, "ar-11")                                   # behind the screen
+        _far_on(store, "lou-19-arrc")                                 # behind the screen
         mark = len(s.text())
         text = s.drive([(F[5], 0.8)])[mark:]
         assert "Select Command" in text and "greyed" not in text and "reports ar-9" not in text

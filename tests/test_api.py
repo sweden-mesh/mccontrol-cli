@@ -138,7 +138,8 @@ def test_every_route_answers_as_its_schema_says(api, monkeypatch):
     _store.update_device("FD700369", ver="esp32s3-v1.17.1-lou-14-arrc-observer-1a2b3c4d")
     arrc = call(url, "GET", "/devices/far/commands")[1]
     rows = {c["text"]: c for g in arrc["groups"] for c in g["commands"]}
-    assert not rows["trigger test"]["hidden"] and rows["trigger test"]["admitted"] and arrc["greyed"] == 0
+    assert not rows["trigger test"]["hidden"] and rows["trigger test"]["admitted"]
+    assert arrc["greyed"] == 1 and not rows["ota update"]["admitted"]      # ota update from lou-19
     assert call(url, "GET", "/commands")[1]["node"] is None
     check = call(url, "GET", "/commands/check?command=set+prv.key+00&device=gisebo")[1]
     assert check["refusal"].startswith("denied") and check["admitted"] is False
@@ -240,6 +241,8 @@ def test_a_send_is_refused_before_anything_is_signed(api):
     assert status == 400 and body["error"]["code"] == "refused" and "denied" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "trigger test", "region": "JKG"})
     assert status == 400 and "transmits" in body["error"]["message"]
+    status, body = call(url, "POST", "/jobs/send", {"command": "ota update", "region": "JKG"})
+    assert status == 400 and "one node at a time" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "region denyf *", "devices": ["gisebo"]})
     assert status == 409 and body["error"]["code"] == "confirm_required" and "no scope" in body["error"]["message"]
     assert body["error"]["cautions"] == [{"command": "region denyf *", "caution": body["error"]["cautions"][0]["caution"]}]

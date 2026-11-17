@@ -64,6 +64,8 @@ def data():
             "prefixes": list(denylist.DENIED_PREFIXES),
             "slot_credential_leaves": list(denylist.SLOT_CREDENTIAL_LEAVES),
             "verbs": [{"text": t, "exact": e} for t, e in denylist.VERBS],
+            "broadcast_refused": list(denylist.BROADCAST_REFUSED),
+            "broadcast_refused_why": denylist.BROADCAST_REFUSED_WHY,
             "messages": {
                 "empty": "an empty command",
                 "separator": "'|' is the envelope's field separator; region put one name at a time",
@@ -307,7 +309,7 @@ CHECK_COMMANDS = (
     "", "ver", "VER", "  get   name ", "get", "set", "set prv.key 00", "get prv", "set prvx", "set mqtt.cmd on",
     "set mqtt.cmd.pubkey AA", "get mqtt.cmd", "get mqtt.cmd.pubkey", "get mqtt2.password", "get mqtt2.passwordx",
     "get mqtt2.username", "set mqtt2.password x", "get mqtt.iata", "password x", "passwords", "erase", "erasex",
-    "start ota", "ota update", "ota check", "region", "region put se-jkp *", "region denyf *", "region denyf se-jkp",
+    "start ota", "ota update", "OTA  Update", "ota update now", "ota check", "region", "region put se-jkp *", "region denyf *", "region denyf se-jkp",
     "region remove se06", "region a|b", "trigger test", "trigger test F", "trigger private AABB", "trigger",
     "set repeat off", "get repeat", "set autoreply off", "set autoreply on", "set autoreply.hops 3",
     "reboot", "reboot now", "clkreboot", "set mqtt.iata GOT", "set mqtt.presets 2", "set mqtt1.server x.se",
@@ -328,11 +330,12 @@ CHECK_VERSIONS = (
     "esp32s3-v1.17.1-lou-16-asarrc-observer-1a2b3c4d",
     "esp32s3-v1.17.1-lou-17-arrc-observer-1a2b3c4d",
     "ESP32S3-V1.17.1-LOU-18-ARRC-OBSERVER-1A2B3C4D",
+    "esp32s3-v1.18.0-lou-19-arrc-observer-1a2b3c4d",
     "esp32s3-v1.17.1-lou-18-xyz-observer-1a2b3c4d",
 )
 
 FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "mqtt.cmd ping",
-                     "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00")
+                     "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00", "ota update")
 
 FACT_ANSWERS = (
     ("ver", "> esp32s3-v1.17.1-lou-18-arrc-observer-1a2b3c4d"),
@@ -356,6 +359,7 @@ def _checks():
         "caution": [{"command": c, "caution": actions.caution(c)} for c in CHECK_COMMANDS],
         "is_read": [{"command": c, "read": commands.is_read(c)} for c in CHECK_COMMANDS],
         "is_transmit": [{"command": c, "transmit": envelope.is_transmit(c)} for c in CHECK_COMMANDS],
+        "broadcast_refusal": [{"command": c, "refusal": denylist.broadcast_refusal(c)} for c in CHECK_COMMANDS],
         "needs": [{"command": c, "tag": firmware.needs(c)} for c in CHECK_COMMANDS],
         "firmware": [{
             "version": v,

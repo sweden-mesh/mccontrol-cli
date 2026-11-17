@@ -27,6 +27,7 @@ The sets are taken from the firmware's own history (`src/helpers/MqttControlLogi
   lou-14  ar-13's, less what the image's features leave out (above).
   lou-17  a command may hold UTF-8 (`set name SE-JKP-Väster`); before it, printable ASCII
           only, and the broker counted anything else as malformed toward a lockout.
+  lou-19  lou-14's and `ota update`, to one node (operator 2026-11-17); before it denied.
 """
 import re
 
@@ -47,6 +48,7 @@ ADMITTED = (
     ("ar-12", 12, None),
     ("ar-13", 13, None),
     ("lou-14", 14, None),
+    ("lou-19", 19, None),
 )
 
 FEATURE_TOKENS = ("as", "ar", "rc", "asar", "asrc", "arrc", "asarrc")
@@ -56,7 +58,7 @@ FEATURES_BEFORE_LOU = "arrc"
 AUTOREPLY_FAMILIES = ("trigger", "set autoreply", "get autoreply")
 
 # Commands the deny list admits that arrived after ar-11: the revision that admits each.
-ARRIVED = {"mqtt.cmd ping": 12}
+ARRIVED = {"mqtt.cmd ping": 12, "ota update": 19}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13

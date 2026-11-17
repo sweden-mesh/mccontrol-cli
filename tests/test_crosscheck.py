@@ -18,7 +18,8 @@ def test_the_firmwares_verdicts_match_the_denylist_and_the_ar_11_row():
     mismatches = []
     for line in lines:
         verdict, command = line.split("|", 1)
-        ours = denylist.refusal(command) is None
+        # the deny list mirrors the newest firmware; a verb admitted later is that row's
+        ours = denylist.refusal(command) is None and firmware.ARRIVED.get(command, 0) <= 11
         admits = firmware.admits("esp32s3-v1.17.1-ar-11-x", command)
         if ours != (verdict == "allowed") or admits != (verdict == "allowed"):
             mismatches.append((command, verdict, "tool allows" if ours else "tool refuses", "ar-11 admits" if admits else "ar-11 refuses"))
@@ -43,3 +44,20 @@ def test_lou_14_rc_matches_the_firmwares_verdicts():
     """`command-verdicts-lou-14-rc.txt` is the firmware's `command-verdicts-rc.txt`: the same
     commands in an image without auto-reply, where its triggers and settings are refused."""
     _check("command-verdicts-lou-14-rc.txt", "esp32s3-v1.17.1-lou-14-rc-observer-1a2b3c4d")
+
+
+def test_lou_19_arrc_matches_the_firmwares_verdicts():
+    """`command-verdicts-lou-19-arrc.txt` is the firmware's `command-verdicts.txt` copied at
+    lou-19, where `ota update` is admitted."""
+    _check("command-verdicts-lou-19-arrc.txt", "esp32s3-v1.18.0-lou-19-arrc-observer-1a2b3c4d")
+
+
+def test_lou_19_rc_matches_the_firmwares_verdicts():
+    _check("command-verdicts-lou-19-rc.txt", "esp32s3-v1.18.0-lou-19-rc-observer-1a2b3c4d")
+
+
+def test_the_deny_list_matches_the_newest_firmware_line_for_line():
+    lines = [l.strip() for l in (pathlib.Path(__file__).parent / "data" / "command-verdicts-lou-19-arrc.txt").read_text().splitlines() if l.strip()]
+    wrong = [(c, v) for v, c in (l.split("|", 1) for l in lines)
+             if (denylist.refusal(c) is None) != (v == "allowed")]
+    assert wrong == [], wrong
