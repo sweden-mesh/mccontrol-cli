@@ -23,7 +23,6 @@ CAUTIONS = (
     ("ota update", "downloads the newest signed firmware and restarts the node on it. It is off the air "
                    "for about a minute; if the new image never works, the node goes back to the old one."),
     ("set mqtt.iata", "moves the node to another region's topics: this tool must change its region to match."),
-    ("set mqtt.presets", "changes how many MQTT slots run; the control plane's slot may stop."),
     ("set mqtt1*", "changes slot 1's broker or credentials; if the control plane rides this slot, it may go silent."),
     ("set mqtt2*", "changes slot 2's broker or credentials; if the control plane rides this slot, it may go silent."),
     ("set mqtt3*", "changes slot 3's broker or credentials; if the control plane rides this slot, it may go silent."),

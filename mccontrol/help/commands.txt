@@ -45,7 +45,7 @@ The ones used most:
   region save              keep the map after a reboot
   set autoreply on|off     answer test requests, or not
   set autoreply.<x> <v>    hops, direct.flood, slot, window, slots,
-                           region, mode, private, delay
+                           region, mode, private
   get autoreply[.<x>]      read them back
   trigger test [<id>] [F|P|D|S]      originate a test probe
   trigger private <64hex> [<id>]     a test request to one repeater

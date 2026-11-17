@@ -9,7 +9,8 @@ Each entry: `Command(text, group, kind, choices, examples, read)`.
           "text"    free text is appended; `examples` are shown beside the field
   read    the reply is worth keeping: cached on the device and shown in the reads pane
 
-The firmware is the authority on what exists; this table is what the tool offers. A node on
+The firmware is the authority on what exists; this table is what the tool offers, and
+`tests/test_firmware_verbs.py` checks every entry against the firmware's console verbs. A node on
 older firmware answers not-allowed to most of it, which the tool reports as the node said.
 """
 
@@ -50,6 +51,7 @@ TABLE = (
     _c("get mqtt.cmd", "reads", read=True),
     _c("get mqtt.iata", "reads", read=True),
     _c("get mqtt.interval", "reads", read=True),
+    _c("get mqtt.presets", "reads", read=True),
     _c("board", "reads", read=True),
     _c("memory", "reads", read=True),
     _c("clock", "reads", read=True),
@@ -59,7 +61,6 @@ TABLE = (
     _c("set autoreply", "auto-reply", "choice", ON_OFF),
     _c("set autoreply.mode", "auto-reply", "choice", ("flood", "private", "direct")),
     _c("set autoreply.hops", "auto-reply", "text", examples=("3", "8")),
-    _c("set autoreply.delay", "auto-reply", "text", examples=("60", "300")),
     _c("set autoreply.direct.flood", "auto-reply", "choice", ON_OFF),
     _c("set autoreply.private", "auto-reply", "choice", ON_OFF),
     _c("set autoreply.region", "auto-reply", "text", examples=("se-jkp",)),
@@ -86,8 +87,8 @@ TABLE = (
     _c("set flood.max", "tuning", "text", examples=("8",)),
     _c("set flood.max.unscoped", "tuning", "text", examples=("2",)),
     _c("set path.hash.mode", "tuning", "choice", ("0", "1", "2")),
-    _c("set loop.detect", "tuning", "choice", ("0", "1", "2", "3")),
-    _c("set multi.acks", "tuning", "choice", ON_OFF),
+    _c("set loop.detect", "tuning", "choice", ("off", "minimal", "moderate", "strict")),
+    _c("set multi.acks", "tuning", "choice", ("0", "1")),
     # MQTT
     _c("set mqtt.iata", "MQTT", "text", examples=("JKG", "GOT")),
     _c("set mqtt.interval", "MQTT", "text", examples=("5", "15")),
@@ -95,7 +96,6 @@ TABLE = (
     _c("set mqtt.packets", "MQTT", "choice", ON_OFF),
     _c("set mqtt.raw", "MQTT", "choice", ON_OFF),
     _c("set mqtt.neighbors", "MQTT", "choice", ON_OFF),
-    _c("set mqtt.presets", "MQTT", "text", examples=("2",)),
     _c("set mqtt1.preset", "MQTT", "text", examples=("meshat.se", "custom")),
     _c("set mqtt1.server", "MQTT", "text", examples=("mqtt-meshcore.louie.se", "mqtt.example.org:1883")),
     _c("set mqtt2.preset", "MQTT", "text", examples=("custom",)),
