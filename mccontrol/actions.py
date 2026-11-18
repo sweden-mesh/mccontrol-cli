@@ -1,9 +1,11 @@
 """What the screens and the command line both do, so they cannot disagree."""
 
 import datetime
+import os
+import random
 import time
 
-from . import beacon, commands, denylist, envelope, firmware, mesh, nodestats, store as _store, transport
+from . import beacon, commands, denylist, envelope, firmware, mcc3, mesh, nodestats, plane, store as _store, transport
 from .store import _now as _store_now
 
 # Commands that take something away from a repeater. Each is sent only after the person has
@@ -144,16 +146,123 @@ def road(store, device, command, via="mqtt", now=None):
     return "mqtt", ""
 
 
+SCHEMES = ("mcc3", "old")
+
+
+def scheme(device):
+    """Which plane a node speaks (IATA-2 §7): `mcc3` when its alive opened under our key
+    (and it has not since been rekeyed away) or its version is lou-20 or later; else `old`,
+    the per-node IATA scheme of lou-19 and older (on its stored region). lou-20 takes both."""
+    alive = (device or {}).get("alive") or {}
+    if alive and alive.get("state") != "not-yours":
+        return "mcc3"
+    return "mcc3" if firmware.speaks_mcc3((device or {}).get("ver")) else "old"
+
+
+def area_devices(store, region=None, county=None):
+    """The devices an area act goes to, one command each: those in IATA `region` (the old
+    scheme's region), or in `county`, a node's own `region home` from its alive (folded)."""
+    if county:
+        want = county.strip().lower()
+        return [d for d in store.devices() if ((d.get("alive") or {}).get("region") or "").lower() == want]
+    want = (region or "").strip().upper()
+    return [d for d in store.devices() if (d.get("region") or "").upper() == want]
+
+
+# An area act is one sealed command per node, in random order, spaced so the fleet does not
+# reboot and re-announce at one instant for everyone to see (IATA-2 §6); a command that
+# restarts the node is spaced wider.
+ACT_SPACING = (10, 90)
+ACT_SPACING_RESTART = (300, 1800)
+
+
+def act_spacing(command):
+    """`(low, high)` seconds between two nodes of an area act."""
+    return ACT_SPACING_RESTART if denylist.broadcast_refusal(command) else ACT_SPACING
+
+
+def faked(script=None):
+    """Is the broker scripted (tests, the screenshots)? Then an area act waits nothing between nodes."""
+    return script is not None or os.environ.get("MCCONTROL_FAKE_RESULTS") is not None
+
+
+def pause(command, stop=None, script=None, rng=random):
+    """Wait the spacing before the next node of an area act; `stop()` True ends it early.
+    Returns the seconds drawn (0 when scripted)."""
+    if faked(script):
+        return 0
+    secs = rng.uniform(*act_spacing(command))
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        if stop and stop():
+            break
+        time.sleep(min(0.5, max(0.0, end - time.monotonic())))
+    return secs
+
+
+def area_topic(label):
+    """What the history's summary line of an area act names (no topic is published): `area/<label>/act`."""
+    return f"area/{label}/act"
+
+
+def area_refusal(command):
+    """Why `command` may not go to every node of an area, or None."""
+    if envelope.is_transmit(command):
+        return "a command that transmits may not be sent to every node of an area; send it to one"
+    return None
+
+
+def act(store, command, devices, label, dry_run=False, wait_secs=None, progress=None, script=None, via="mqtt",
+        rng=random):
+    """`command` to each of `devices`, one sealed per-node command each (never a broadcast),
+    in random order and spaced (`pause`). A node that cannot take it is reported and the
+    rest still go. Returns `(None, None, {node: Result}, lines)`."""
+    why = area_refusal(command)
+    if why:
+        raise envelope.EnvelopeError(why)
+    if via == "mesh":
+        raise envelope.EnvelopeError("the mesh road goes to one node at a time; an area act goes over MQTT")
+    if not devices:
+        raise envelope.EnvelopeError(f"no device of yours in {label}")
+    order = list(devices)
+    rng.shuffle(order)
+    answers, lines = {}, []
+    for i, d in enumerate(order):
+        if i and not dry_run:
+            pause(command, script=script, rng=rng)
+        label_d = (d.get("name") or d["node"])[:12]
+        try:
+            _t, _p, got, l = send(store, command, device=d, dry_run=dry_run, wait_secs=wait_secs,
+                                  progress=progress, script=script, via=via)
+        except (envelope.EnvelopeError, mesh.MeshError) as exc:
+            lines.append(f"{label_d:12} not sent: {exc}")
+            continue
+        answers.update(got)
+        lines += l
+    if not dry_run:
+        store.record(None, command, area_topic(label), None, note=f"{len(answers)} of {len(devices)} answered", road=via)
+    return None, None, answers, lines
+
+
 def send(store, command, device=None, region=None, dry_run=False, wait_secs=None, progress=None, script=None,
-         via="mqtt"):
-    """Sign and send `command` to one device, or with `region` to every node in that region.
-    `script`, here and below, stands in for the broker in tests (`transport._fake`). `via`
-    picks the road (`road`): MQTT, the mesh through your companion, or auto.
+         via="mqtt", county=None):
+    """Sign and send `command` to one device; with `region` (an IATA code) or `county` (a
+    node's `region home`), to each of your devices there in turn (`act`): there is no
+    broadcast. `script`, here and below, stands in for the broker in tests
+    (`transport._fake`). `via` picks the road (`road`): MQTT, the mesh through your
+    companion, or auto. The plane is the node's (`scheme`): mcc3 for lou-20 and later, the
+    old per-node IATA scheme before.
 
     Returns `(topic, payload, {node: Result}, lines)`, where `lines` is what to show.
     Raises `envelope.EnvelopeError`, `transport.BrokerError`, `mesh.MeshError` or
     `store.StoreError`.
     """
+    if device is None:
+        if not (region or county):
+            raise envelope.EnvelopeError("a command goes to a device, or to each device of an area")
+        devices = area_devices(store, region, county)
+        label = county.strip().lower() if county else (region or "").strip().upper()
+        return act(store, command, devices, label, dry_run, wait_secs, progress, script, via)
     config = store.config()
     chosen, why_road = road(store, device, command, via)
     if chosen == "mesh":
@@ -161,11 +270,11 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
                          script=script, why=why_road, fallback=via == "auto")
     if via == "auto" and not dry_run:
         try:
-            return _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script)
+            return _send_mqtt(store, config, command, device, dry_run, wait_secs, progress, script)
         except transport.BrokerError as exc:
             return send_mesh(store, command, device, wait_secs=wait_secs, progress=progress, script=script,
                              why=f"MQTT unreachable: {exc}")
-    return _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script)
+    return _send_mqtt(store, config, command, device, dry_run, wait_secs, progress, script)
 
 
 def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=None, script=None, why="",
@@ -179,6 +288,8 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
     refused = denylist.mesh_refusal(text, mesh_only=only)
     if refused:
         raise envelope.EnvelopeError(f"the node would refuse {command!r} over the mesh: {refused}")
+    if scheme(device) == "mcc3":
+        return _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress, script, why, fallback)
     mesh.check_command(command)             # 59 bytes, before anything is signed
     if firmware.speaks_mesh(device.get("ver")) is False:
         raise envelope.EnvelopeError(f"{device['name'] or device['node']} runs {device.get('ver')}; the mesh "
@@ -209,9 +320,15 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
                                               name=device.get("name") or "", counter=counter,
                                               ttl_secs=config.get("ttl_secs", envelope.DEFAULT_TTL_SECS),
                                               wait_secs=wait, progress=progress)
+    return _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback,
+                      wait_secs, progress, script)
+
+
+def _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback, wait_secs,
+               progress, script):
     if fallback and result is not None and result.code == 19:
         store.record(device["node"], command, topic, result, note="mesh closed: sent over MQTT", road="mesh")
-        t, p, answers, lines = _send_mqtt(store, config, command, device, None, False, wait_secs, progress, script)
+        t, p, answers, lines = _send_mqtt(store, config, command, device, False, wait_secs, progress, script)
         return t, p, answers, [f"{head}: the node's mesh road is closed (its MQTT works); sent over MQTT"] + lines
     store.record(device["node"], command, topic, result, note=why, road="mesh")
     if result is not None and result.ok and commands.is_read(command):
@@ -226,38 +343,66 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
         f"{(device.get('name') or device['node'])[:12]:12} {line}"]
 
 
-def _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progress, script):
+def _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress, script, why, fallback):
+    """The mesh road to a lou-20 node: 0xC2, sealed to the node, 57 bytes of command."""
+    mesh.check_command_mcc3(command)        # before anything is signed
+    key = _whole_key(device)
+    topic = mcc3.command_topic(key)         # what the history names: the node, never a region
+    spec = config.get("companion") or ""
+    head = f"over the mesh{f' ({why})' if why else ''}"
+    ttl = config.get("ttl_secs", envelope.DEFAULT_TTL_SECS)
+    keys = store.owner_keys(key)
+    if dry_run:
+        body = mesh.build_mcc3(store.seed(), key, 0, command, keys=keys, ttl_secs=ttl)
+        return topic, body.hex().upper(), {}, [f"would send {head} through {spec or 'your companion (none set)'}",
+                                               f"sealed for {key[:8]} (mcc3, 0xC2)", body.hex().upper(),
+                                               "not sent (dry run)"]
+    mesh.parse_spec(spec)
+    wait = wait_secs or config.get("wait_secs", 20)
+    counter = store.next_counter(device["node"])
+    hit = transport._fake(topic, command, counter, [device["node"]], script)
+    if hit is not None:
+        transport._wait(transport.FAKE_WAIT_SECS, lambda: False, lambda: list(hit), progress)
+        r = hit.get(device["node"])
+        body = mesh.build_mcc3(store.seed(), key, counter, command, keys=keys, ttl_secs=ttl)
+        result = None if r is None else mesh.MeshResult(r.node, counter, r.code, command, r.reply, None)
+        info = {"path": "faked", "contact": "known"}
+    else:
+        body, result, info = mesh.send_mcc3(spec, store.seed(), key, command, counter, keys,
+                                            name=device.get("name") or "", ttl_secs=ttl, wait_secs=wait,
+                                            progress=progress)
+    return _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback,
+                      wait_secs, progress, script)
+
+
+def _whole_key(device):
+    key = envelope.node_key(device.get("key") or "")
+    if not key:
+        raise envelope.EnvelopeError(f"{device.get('name') or device['node']} speaks mcc3, which needs its whole "
+                                     f"public key (64 hex); discover it or change the device to add it")
+    return key
+
+
+def _send_mqtt(store, config, command, device, dry_run, wait_secs, progress, script):
     why = denylist.refusal(command)
     if why:
         raise envelope.EnvelopeError(f"the node would refuse {command!r}: {why}")
-    broadcast = device is None
-    if broadcast and not region:
-        raise envelope.EnvelopeError("a broadcast needs a region")
-    if broadcast and envelope.is_transmit(command):
-        raise envelope.EnvelopeError("a command that transmits may not be sent to every node; "
-                                     "the firmware refuses it, and so does this")
-    if broadcast and denylist.broadcast_refusal(command):
-        raise envelope.EnvelopeError(f"{command!r} may not be sent to every node: "
-                                     f"{denylist.broadcast_refusal(command)}")
+    if scheme(device) == "mcc3":
+        return _send_mcc3(store, config, command, device, dry_run, wait_secs, progress, script)
     if not command.isascii():
-        if broadcast:
-            raise envelope.EnvelopeError("a broadcast is plain ASCII: nodes before lou-17 refuse "
-                                         "letters such as åäö; send it to each node instead")
         if not firmware.admits_utf8(device.get("ver")):
             raise envelope.EnvelopeError(
                 f"{device['name']} runs {device.get('ver') or 'an unknown version'}, which takes "
                 f"plain ASCII only; letters such as åäö need lou-17 (refresh to read its version)")
-    region = (region or device.get("region") or "").upper()
+    region = (device.get("region") or "").upper()
     if not region:
-        raise envelope.EnvelopeError(f"{device['name']} has no region; change the device and set it")
-    topic = envelope.command_topic(region, None if broadcast else device["node"],
-                                   None if broadcast else device.get("key"))
-    hear = ([d["node"] for d in store.devices() if (d.get("region") or "").upper() == region]
-            if broadcast else [device["node"]])
+        raise envelope.EnvelopeError(f"{device['name'] or device['node']} has no region, which lou-19 and older "
+                                     f"need; change the device and set it")
+    topic = envelope.command_topic(region, device["node"], device.get("key"))
+    hear = [device["node"]]
     keys = {d["node"]: d.get("key") for d in store.devices() if d.get("key")}
     # v2, encrypted, to one node whose firmware opens it and whose whole key is known
-    v2_key = (None if broadcast or not firmware.speaks_v2(device.get("ver"))
-              else envelope.node_key(device.get("key") or ""))
+    v2_key = None if not firmware.speaks_v2(device.get("ver")) else envelope.node_key(device.get("key") or "")
     if dry_run:
         payload = (envelope.build_v2(store.seed(), topic, 0, command, v2_key) if v2_key
                    else envelope.build(store.seed(), topic, 0, command))
@@ -274,13 +419,41 @@ def _send_mqtt(store, config, command, device, region, dry_run, wait_secs, progr
     versions = {d["node"]: d.get("ver") for d in store.devices()}
     for node in hear:
         result = answers.get(node)
-        store.record(node, command, topic, result, note="broadcast" if broadcast else "", road="mqtt")
+        store.record(node, command, topic, result, note="", road="mqtt")
         if result is not None and result.ok and commands.is_read(command) and node in names:
             store.remember_read(node, command, result.reply or "OK", result.verified)
         lines.append(f"{names.get(node, node[:8])[:12]:12} {outcome_line(result, versions.get(node))}")
-    if broadcast:
-        store.record(None, command, topic, None,
-                     note=f"{len(answers)} of {len(hear)} answered", road="mqtt")
+    return topic, payload, answers, lines
+
+
+def _send_mcc3(store, config, command, device, dry_run, wait_secs, progress, script):
+    """One sealed command to one lou-20 node on `mcc/cmd/<KEY>`, through the shared broker,
+    its result on this session's reply topic. No region anywhere."""
+    key = _whole_key(device)
+    if len(command.encode("utf-8")) > mcc3.MAX_COMMAND:
+        raise envelope.EnvelopeError(f"a command is at most {mcc3.MAX_COMMAND} bytes")
+    keys = store.owner_keys(key)
+    topic = mcc3.command_topic(key)
+    if dry_run:
+        try:
+            payload = mcc3.seal_command(store.seed(), key, 0, 0, plane.session()["rid"], command, keys=keys)
+        except mcc3.Mcc3Error as exc:
+            raise envelope.EnvelopeError(str(exc)) from None
+        return topic, payload, {}, [f"would publish to {topic} (mcc3, sealed)", payload, "not sent (dry run)"]
+    counter = store.next_counter(device["node"])
+    topic, payload, answers = plane.send(config, store.seed(), key, command, counter, keys=keys,
+                                         wait_secs=wait_secs or config.get("wait_secs", 20),
+                                         progress=progress, script=script)
+    lines = []
+    mismatch = private_mismatch(store, device, command)
+    if mismatch:
+        lines.append(mismatch)
+    node = device["node"]
+    result = answers.get(node)
+    store.record(node, command, topic, result, note="mcc3", road="mqtt")
+    if result is not None and result.ok and commands.is_read(command):
+        store.remember_read(node, command, result.reply or "OK", result.verified)
+    lines.append(f"{(device.get('name') or node)[:12]:12} {outcome_line(result, device.get('ver'))}")
     return topic, payload, answers, lines
 
 
@@ -292,10 +465,22 @@ def fill(steps, arg):
 
 
 def run_set(store, steps, device=None, region=None, dry_run=False, wait_secs=None, on_step=None, progress=None,
-            script=None):
-    """Send `steps` in order to one device (or every node in `region`), stopping at the first
-    refusal or silence. Returns `(lines, stopped_at)`: what to show, and the index of the
-    step that stopped it, or None when every step was answered ok."""
+            script=None, county=None):
+    """Send `steps` in order to one device (or to each of your devices in `region` or
+    `county`, one after another, never a broadcast), stopping at the first refusal or
+    silence. Returns `(lines, stopped_at)`: what to show, and the index of the step that
+    stopped it (on any device), or None when every step was answered ok."""
+    if device is None:
+        lines, stopped = [], None
+        devices = area_devices(store, region, county)
+        if not devices:
+            raise envelope.EnvelopeError(f"no device of yours in {county or region}")
+        for d in devices:
+            l, s = run_set(store, steps, device=d, dry_run=dry_run, wait_secs=wait_secs, on_step=on_step,
+                           progress=progress, script=script)
+            lines += [f"== {d.get('name') or d['node']}"] + l
+            stopped = s if stopped is None else stopped
+        return lines, stopped
     lines, stopped = [], None
     for i, command in enumerate(steps):
         if on_step:
@@ -306,9 +491,7 @@ def run_set(store, steps, device=None, region=None, dry_run=False, wait_secs=Non
         lines += step_lines
         if dry_run:
             continue
-        expected = 1 if device else len([d for d in store.devices()
-                                         if (d.get("region") or "").upper() == region.upper()])
-        if len(answers) < expected or any(not r.ok for r in answers.values()):
+        if len(answers) < 1 or any(not r.ok for r in answers.values()):
             stopped = i
             lines.append(f"stopped at step {i + 1}: not every node answered ok; "
                          f"{len(steps) - i - 1} step(s) not sent")
@@ -508,11 +691,74 @@ def discover(store, region, wait_secs=None, progress=None, script=None):
 
 
 def adopt(store, entry, name=""):
-    """Remember a discovered node; unnamed until you name it, since the control plane
-    carries no name (a name-plus-number is used if the name is taken)."""
+    """Remember a discovered node; unnamed until you name it, since the old plane carries no
+    name (a name-plus-number is used if the name is taken). A node found by its alive has a
+    whole key and no region: mcc3 needs none."""
     name = (name or "").strip()
     base, n = name, 2
     while name and any(d["name"].lower() == name.lower() for d in store.devices()):
         name = f"{base}-{n}"
         n += 1
-    return store.add_device(name, entry["node"], entry["region"], "found by discovery", key=entry.get("key"))
+    added = store.add_device(name, entry["node"], entry.get("region") or "", "found by discovery",
+                             key=entry.get("key"))
+    if entry.get("alive"):
+        added = store.update_device(added["node"], alive=entry["alive"])
+    return added
+
+
+# -- discovery from alive (mcc3, IATA-2 §6) ------------------------------------------------
+
+ALIVE_STATES = {"ours": "online", "empty": "offline", "foreign": "not-yours"}
+
+
+def _alive_record(fields, state, at):
+    rec = {"state": state, "at": datetime.datetime.fromtimestamp(at).replace(microsecond=0).isoformat(sep=" ")}
+    if fields:
+        rec.update({k: fields[k] for k in ("boot", "sequence", "uptime", "clock", "last_counter", "interval",
+                                           "flags", "mesh", "fingerprint", "version", "region", "name")})
+        rec["old_scheme"] = bool(fields["flags"] & 1)
+    return rec
+
+
+def discover_alive(store, wait_secs=None, progress=None, add=False, client_factory=None):
+    """Your nodes, wherever they are, from the retained alive messages: every `mcc/alive/<KEY>`
+    is tried with your command key (the shared secret per node cached beside the key), and
+    those that open are yours. A device you have whose alive is empty is offline; one whose
+    alive no longer opens is no longer yours (rekeyed). Reads only; nothing is published.
+
+    Returns `[{node, key, name, version, state, known_as, added, alive}]`, sorted by name."""
+    config = store.config()
+    seed = store.seed()
+    cache = store.ecdh_cache()
+    before = len(cache)
+    seen = plane.scan(config, seed, cache, wait_secs=wait_secs or min(10, config.get("wait_secs", 20)),
+                      progress=progress, client_factory=client_factory)
+    if len(cache) != before:
+        store.save_ecdh_cache(cache)
+    by_key = {(d.get("key") or "").upper(): d for d in store.devices() if d.get("key")}
+    found = []
+    for key, (state, fields, at) in seen.items():
+        d = by_key.get(key)
+        if d is None and state == "ours":       # a device kept by its id alone: its alive gives the key
+            d = next((x for x in store.devices() if x["node"] == key[:envelope.NODE_HEX_LEN]
+                      and not x.get("key")), None)
+            if d is not None:
+                d = store.update_device(d["node"], key=key)
+        if state != "ours" and d is None:
+            continue                    # someone else's node, or one we never had: nothing to say
+        rec = _alive_record(fields, ALIVE_STATES[state], at)
+        if d is not None:
+            old = d.get("alive") or {}
+            if state == "ours" and old.get("state") == "online" and not plane.newer(fields, old):
+                rec = old               # stale: a replay of an older message
+            elif state != "ours":
+                rec = dict(old, state=rec["state"], at=rec["at"])
+            store.update_device(d["node"], alive=rec)
+        entry = {"node": key[:envelope.NODE_HEX_LEN], "key": key, "name": (fields or {}).get("name", ""),
+                 "version": (fields or {}).get("version", ""), "state": rec["state"],
+                 "known_as": None if d is None else (d.get("name") or d["node"]), "added": False, "alive": rec}
+        if add and d is None and store.device(entry["node"]) is None:
+            adopt(store, {"node": key, "key": key, "region": "", "alive": rec}, entry["name"])
+            entry["added"] = True
+        found.append(entry)
+    return sorted(found, key=lambda e: (e["name"] or e["node"]).lower())

@@ -84,24 +84,44 @@ def test_a_broadcast_of_a_transmit_command_is_refused_before_signing(store):
         actions.send(store, "trigger test", region="JKG", dry_run=True)
 
 
-def test_an_update_goes_to_one_node_never_as_a_broadcast(store):
+def test_an_update_to_an_area_goes_one_node_at_a_time_spaced_wide(store):
     store.create_key()
-    with pytest.raises(envelope.EnvelopeError, match="one node at a time"):
+    with pytest.raises(envelope.EnvelopeError, match="no device of yours in JKG"):
         actions.send(store, "ota update", region="JKG", dry_run=True)
     store.add_device("LOUTEST", NODE, "JKG")
     topic, _payload, _answers, _lines = actions.send(store, "ota update", device=store.device("LOUTEST"),
                                                      dry_run=True)
     assert topic == "meshcore/JKG/" + NODE + "/cmd"
     assert "restarts the node" in actions.caution("ota update")
+    # a restart in an area act is spaced 5-30 min, anything else 10-90 s (IATA-2 §6)
+    assert actions.act_spacing("ota update") == actions.act_spacing("reboot") == (300, 1800)
+    assert actions.act_spacing("get name") == (10, 90)
+    _t, _p, _a, lines = actions.send(store, "reboot", region="JKG", dry_run=True)
+    assert lines[0] == f"would publish to meshcore/JKG/{NODE}/cmd"          # its own topic, never all/cmd
 
 
-def test_a_reboot_goes_to_one_node_never_as_a_broadcast(store):
+def test_an_area_act_is_shuffled_spaced_and_one_command_per_node(store, monkeypatch):
     store.create_key()
-    with pytest.raises(envelope.EnvelopeError, match="one node at a time"):
-        actions.send(store, "reboot", region="JKG", dry_run=True)
-    store.add_device("LOUTEST", NODE, "JKG")
-    topic, _payload, _answers, _lines = actions.send(store, "reboot", device=store.device("LOUTEST"), dry_run=True)
-    assert topic == "meshcore/JKG/" + NODE + "/cmd"
+    for n in ("AAAAAAAA", "BBBBBBBB", "CCCCCCCC"):
+        store.add_device(n, n, "JKG")
+    sent, slept = [], []
+    monkeypatch.setattr(actions.transport, "send",
+                        lambda cfg, seed, topic, cmd, nodes_to_hear=(), **k: sent.append(topic) or ("p", {}))
+    monkeypatch.setattr(actions.time, "sleep", lambda secs: slept.append(secs))
+    clock = iter(range(0, 10 ** 6, 1000))
+    monkeypatch.setattr(actions.time, "monotonic", lambda: next(clock))
+
+    class _Rng:
+        def shuffle(self, items):
+            items.reverse()
+
+        def uniform(self, lo, hi):
+            slept.append(("drawn", lo, hi))
+            return lo
+    actions.act(store, "get name", store.devices(), "JKG", rng=_Rng())
+    assert sent == [f"meshcore/JKG/{n}/cmd" for n in ("CCCCCCCC", "BBBBBBBB", "AAAAAAAA")]
+    assert [s for s in slept if isinstance(s, tuple)] == [("drawn", 10, 90)] * 2      # between nodes, not before
+    assert store.history(None)[-1]["note"] == "0 of 3 answered"
 
 
 def test_aao_goes_only_to_a_node_whose_firmware_takes_it_and_never_as_a_broadcast(store, monkeypatch):
@@ -117,20 +137,22 @@ def test_aao_goes_only_to_a_node_whose_firmware_takes_it_and_never_as_a_broadcas
     topic, payload, _a, _l = actions.send(store, "set name SE-JKP-Väster",
                                           device=store.device("LOUTEST"), dry_run=True)
     assert topic.endswith("/cmd") and payload
-    with pytest.raises(envelope.EnvelopeError, match="broadcast is plain ASCII"):
-        actions.send(store, "set name Väster", region="JKG", dry_run=True)
+    # an area act asks each node in turn: one too old for åäö is reported, never sent
+    store.add_device("OLD", "BBBBBBBB", "JKG")
+    _t, _p, _a, lines = actions.send(store, "set name Väster", region="JKG", dry_run=True)
+    assert any(l.startswith("OLD          not sent:") and "plain ASCII" in l for l in lines)
 
 
-def test_a_broadcast_goes_to_one_region_and_hears_only_that_regions_devices(store, monkeypatch):
+def test_a_region_act_goes_to_that_regions_devices_each_on_its_own_topic(store, monkeypatch):
     store.create_key()
     store.add_device("LOUTEST", NODE, "JKG")
     store.add_device("FAR", "BBBBBBBB", "GOT")
-    heard = {}
+    heard = []
     monkeypatch.setattr(actions.transport, "send",
-                        lambda cfg, seed, topic, cmd, nodes_to_hear=(), **k: heard.update(
-                            {"topic": topic, "nodes": list(nodes_to_hear), "region": cfg["region"]}) or ("p", {}))
+                        lambda cfg, seed, topic, cmd, nodes_to_hear=(), **k: heard.append(
+                            (topic, list(nodes_to_hear), cfg["region"])) or ("p", {}))
     actions.send(store, "region put se-jkp *", region="jkg")
-    assert heard == {"topic": "meshcore/JKG/all/cmd", "nodes": [NODE], "region": "JKG"}
+    assert heard == [(f"meshcore/JKG/{NODE}/cmd", [NODE], "JKG")]
 
 
 def test_a_device_without_a_region_cannot_be_sent_to(store):
@@ -148,6 +170,8 @@ def test_send_records_every_device_asked_even_the_silent_ones(store, monkeypatch
     answer = envelope.parse_result("r1|1|0|region put se-jkp *|OK", NODE)
     monkeypatch.setattr(actions.transport, "send",
                         lambda cfg, seed, topic, cmd, nodes_to_hear=(), **k: ("payload", {NODE: answer}))
+    monkeypatch.setattr(actions.random, "shuffle", lambda items: None)
+    monkeypatch.setattr(actions, "pause", lambda *a, **k: 0)
     _t, _p, answers, lines = actions.send(store, "region put se-jkp *", region="JKG")
     assert lines == ["LOUTEST      OK", "UGO          no answer"]
     assert store.history("BBBBBBBB")[0]["code"] is None
@@ -423,8 +447,7 @@ def test_a_device_keeps_its_whole_key_and_commands_go_to_the_topic_it_listens_on
     assert seen["topic"] == f"meshcore/JKG/{KEY}/cmd"
     actions.send(store, "ver", device=store.device("old"))
     assert seen["topic"] == "meshcore/JKG/BBBBBBBB/cmd"
-    actions.send(store, "ver", region="JKG")
-    assert seen["topic"] == "meshcore/JKG/all/cmd" and seen["keys"] == {"4AC61A7F": KEY}
+    assert seen["keys"] == {"4AC61A7F": KEY}
 
 
 def test_discovery_learns_a_known_devices_key_from_its_whole_key_topic(store, monkeypatch):

@@ -213,16 +213,16 @@ class Client:
         return self.call("POST", f"/jobs/{verb}", body={k: v for k, v in body.items() if v is not None})
 
     def start_send(self, command, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
-                   group=None, via=None):
+                   group=None, via=None, county=None):
         return self._start("send", command=command, devices=devices, tagged=tagged, region=region, group=group,
-                           dry_run=dry_run, confirm=confirm, wait_secs=wait_secs, via=via)
+                           county=county, dry_run=dry_run, confirm=confirm, wait_secs=wait_secs, via=via)
 
     def start_run_set(self, name, arg=None, devices=None, tagged=None, region=None, dry_run=None, confirm=None, wait_secs=None,
-                      group=None):
+                      group=None, county=None):
         return self._start("run-set", set=name, arg=arg, devices=devices, tagged=tagged, region=region, group=group,
-                           dry_run=dry_run, confirm=confirm, wait_secs=wait_secs)
+                           county=county, dry_run=dry_run, confirm=confirm, wait_secs=wait_secs)
 
-    def start_discover(self, region, wait_secs=None, add=None):
+    def start_discover(self, region=None, wait_secs=None, add=None):
         return self._start("discover", region=region, wait_secs=wait_secs, add=add)
 
     def start_refresh_names(self, devices=None, tagged=None, wait_secs=None):

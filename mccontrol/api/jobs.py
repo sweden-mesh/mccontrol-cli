@@ -150,11 +150,13 @@ def _label(d):
 # -- checks before a thread starts -------------------------------------------------------
 
 def _targets(ctx, body):
-    """`(devices, region)`: exactly one of devices, tagged, group, region. A group is its
-    members one by one, each on its own topic, never a broadcast."""
-    given = [k for k in ("devices", "tagged", "group", "region") if body.get(k)]
+    """`(devices, area)`: exactly one of devices, tagged, group, region, county. A group is
+    its members one by one, each on its own topic; a region (an IATA code, the old scheme's)
+    or a county (a node's own `region home`) is each of your devices there, one sealed
+    command per node, never a broadcast. `area` names the region or county, else None."""
+    given = [k for k in ("devices", "tagged", "group", "region", "county") if body.get(k)]
     if len(given) != 1:
-        raise bad("exactly one target: devices, tagged, group or region")
+        raise bad("exactly one target: devices, tagged, group, region or county")
     if given[0] == "group":
         if not isinstance(body["group"], str):
             raise bad("group is a string")
@@ -164,10 +166,15 @@ def _targets(ctx, body):
         if not members:
             raise bad(f"group {body['group'].strip().lower()} has no devices")
         return [ctx.store.device(n) for n in members], None
-    if given[0] == "region":
-        if not isinstance(body["region"], str):
-            raise bad("region is a string")
-        return None, body["region"].strip().upper()
+    if given[0] in ("region", "county"):
+        kind = given[0]
+        if not isinstance(body[kind], str):
+            raise bad(f"{kind} is a string")
+        area = body[kind].strip().upper() if kind == "region" else body[kind].strip().lower()
+        devices = actions.area_devices(ctx.store, **{kind: area})
+        if not devices:
+            raise bad(f"no device of yours in {area}")
+        return devices, area
     if given[0] == "tagged":
         devices = [d for d in ctx.store.devices() if d["node"] in ctx.tags]
         if not devices:
@@ -196,14 +203,14 @@ def _wait(body):
     return w
 
 
-def _via(body, devices=None, region=None):
+def _via(body, devices=None, area=None):
     """The road asked for: mqtt (the default), mesh or auto. The mesh goes to one node at a
-    time, so never with a region."""
+    time, so never to an area (its airtime)."""
     via = body.get("via", "mqtt")
     if via not in actions.ROADS:
         raise bad(f"via is one of {', '.join(actions.ROADS)}")
-    if via == "mesh" and region:
-        raise ApiError(400, "refused", "the mesh road goes to one node at a time; a broadcast goes over MQTT")
+    if via == "mesh" and area:
+        raise ApiError(400, "refused", "the mesh road goes to one node at a time; an area act goes over MQTT")
     return via
 
 
@@ -224,25 +231,19 @@ def _refusal(command, via, devices):
     return None
 
 
-def _vet(ctx, commands_, region, body, devices=None, via="mqtt"):
-    """The deny list (the road's), the broadcast rule and the cautions, before anything is signed."""
+def _vet(ctx, commands_, area, body, devices=None, via="mqtt"):
+    """The deny list (the road's), the area rule and the cautions, before anything is signed."""
     for command in commands_:
         why = _refusal(command, via, devices)
         if why:
             raise ApiError(400, "refused", f"the node would refuse {command!r}: {why}")
-        if region and envelope.is_transmit(command):
-            raise ApiError(400, "refused", "a command that transmits may not be sent to every node; the firmware refuses it")
-        if region and denylist.broadcast_refusal(command):
-            raise ApiError(400, "refused", f"{command!r} may not be sent to every node: {denylist.broadcast_refusal(command)}")
+        if area and actions.area_refusal(command):
+            raise ApiError(400, "refused", actions.area_refusal(command))
     cautions = [f"'{c}' {actions.caution(c)}" for c in commands_ if actions.caution(c)]
     if cautions and not body.get("dry_run") and not body.get("confirm"):
         raise ApiError(409, "confirm_required", " ".join(cautions) + " Send again with confirm: true.",
                        cautions=[{"command": c, "caution": actions.caution(c)} for c in commands_ if actions.caution(c)])
     ctx.store.seed()                    # no key, or a readable one, is a StoreError now
-
-
-def _in_region(ctx, region):
-    return {d["node"]: _label(d) for d in ctx.store.devices() if (d.get("region") or "").upper() == region}
 
 
 # -- the verbs ---------------------------------------------------------------------------
@@ -251,37 +252,34 @@ def start_send(ctx, _p, _q, body):
     command = " ".join((body.get("command") or "").split()) if isinstance(body.get("command"), str) else ""
     if not command:
         raise bad("command is required")
-    devices, region = _targets(ctx, body)
-    via = _via(body, devices, region)
-    _vet(ctx, [command], region, body, devices, via)
+    devices, area = _targets(ctx, body)
+    via = _via(body, devices, area)
+    _vet(ctx, [command], area, body, devices, via)
     dry, wait = bool(body.get("dry_run")), _wait(body)
     group = body.get("group")
     store = ctx.store
+    if area:                                # an area act: random order, spaced (actions.pause)
+        devices = list(devices)
+        actions.random.shuffle(devices)
 
     def work(job):
-        if region:
-            names = _in_region(ctx, region)
-            job.update(expected=len(names), text=f"0 of {len(names)} known answered")
-            topic, _pl, answers, lines = actions.send(
-                store, command, region=region, dry_run=dry, wait_secs=wait,
-                progress=ticker(job, lambda n: f"{n} of {len(names)} known answered", names, command), script=ctx.script)
-            for node, name in names.items():
-                job.land(outcome(node, name, command, answers.get(node), line="not sent (dry run)" if dry else None))
-            job.update(answered=len(answers), text=f"{len(answers)} of {len(names)} known answered")
-            return {"command": command, "lines": lines, "answered": len(answers), "asked": len(names),
-                    "dry_run": dry, "topics": [topic]}
         answered, asked, lines, topics = 0, 0, [], []
         job.update(expected=len(devices))
         for i, d in enumerate(devices):         # one signed publish per device, to its own topic
             if job.stopping():
                 break
+            if area and i and not dry:
+                job.update(text=f"{answered} of {len(devices)} answered; spacing before {_label(d)}")
+                actions.pause(command, stop=job.stopping, script=ctx.script)
+                if job.stopping():
+                    break
             label = _label(d)
             text = lambda _n, a=answered, label=label, i=i: f"{a} of {len(devices)} answered; waiting for {label} ({i + 1} of {len(devices)})"
             try:
                 topic, _pl, answers, l = actions.send(store, command, device=d, dry_run=dry, wait_secs=wait,
                                                       progress=ticker(job, text), script=ctx.script, via=via)
             except (envelope.EnvelopeError, mesh.MeshError) as exc:
-                if not group:
+                if not group and not area:
                     raise
                 job.land({"node": d["node"], "name": label, "command": command, "ok": False, "code": None,
                           "code_name": None, "reply": None, "verified": None, "line": f"not sent: {exc}"})
@@ -295,6 +293,8 @@ def start_send(ctx, _p, _q, body):
             lines += l
             topics.append(topic)
         job.update(text=f"{answered} of {len(devices)} answered")
+        if area and not dry:
+            store.record(None, command, actions.area_topic(area), None, note=f"{answered} of {len(devices)} answered", road=via)
         return {"command": command, "lines": lines, "answered": answered, "asked": asked, "dry_run": dry, "topics": topics}
 
     return 202, ctx.jobs.start("send", work).snapshot()
@@ -306,8 +306,8 @@ def start_run_set(ctx, _p, _q, body):
     if not steps:
         raise not_found(f"no set named {name!r}")
     steps = actions.fill(steps, body.get("arg") or "")
-    devices, region = _targets(ctx, body)
-    _vet(ctx, steps, region, body)
+    devices, area = _targets(ctx, body)
+    _vet(ctx, steps, area, body)
     dry, wait = bool(body.get("dry_run")), _wait(body)
     store = ctx.store
 
@@ -316,13 +316,6 @@ def start_run_set(ctx, _p, _q, body):
 
     def work(job):
         job.update(steps=len(steps))
-        if region:
-            names = _in_region(ctx, region)
-            job.update(expected=len(names))
-            lines, stopped = actions.run_set(store, steps, region=region, dry_run=dry, wait_secs=wait,
-                                             on_step=on_step(job, region), progress=ticker(job, lambda n: f"{n} of {len(names)} known answered"),
-                                             script=ctx.script)
-            return {"steps": steps, "lines": lines, "runs": [{"target": region, "stopped_at": stopped}]}
         lines, runs = [], []
         job.update(expected=len(devices))
         for d in devices:
@@ -345,9 +338,14 @@ def start_run_set(ctx, _p, _q, body):
 
 
 def start_discover(ctx, _p, _q, body):
+    """Without a region: your nodes from their alive messages (mcc3, lou-20 and later),
+    wherever they are. With one: the old scheme's read broadcast to that IATA region, which
+    only lou-19 and older still answer."""
     asked = body.get("region")
-    if not isinstance(asked, str):
-        raise bad("region is required: the IATA code, e.g. JKG; several with commas, or * for every region you have")
+    if asked is not None and not isinstance(asked, str):
+        raise bad("region is a string: the IATA code, e.g. JKG; several with commas, or * for every region you have")
+    if not (asked or "").strip():
+        return _start_discover_alive(ctx, body)
     regions = actions.regions_asked(asked, ctx.store)
     if not regions:
         raise bad("discovery needs a region: the IATA code, e.g. JKG; several with commas, or * for every region you have")
@@ -380,6 +378,31 @@ def start_discover(ctx, _p, _q, body):
                           "line": e["outcome"]})
         job.update(answered=len(found), text=f"{len(found)} found in {', '.join(regions)}")
         return {"regions": regions, "found": found}
+
+    return 202, ctx.jobs.start("discover", work).snapshot()
+
+
+def _start_discover_alive(ctx, body):
+    wait, add = _wait(body), bool(body.get("add"))
+    ctx.store.seed()
+    store = ctx.store
+    broker = store.config()["broker"]
+
+    def work(job):
+        found = []
+        part = actions.discover_alive(store, wait_secs=wait, add=add,
+                                      progress=ticker(job, lambda n: f"{n} of your nodes alive"))
+        for e in part:
+            e = {"node": e["node"], "region": "", "code": 0, "reply": e["version"], "key": e["key"],
+                 "verified": True, "known_as": e["known_as"], "outcome": f"{e['state']} {e['version']}".strip(),
+                 "name": e["name"], "added": e["added"], "broker": broker, "scheme": "mcc3",
+                 "state": e["state"], "version": e["version"]}
+            found.append(e)
+            job.land({"node": e["node"], "name": e["name"] or e["known_as"] or e["node"], "command": "alive",
+                      "ok": e["state"] == "online", "code": 0, "code_name": envelope.code_name(0),
+                      "reply": e["reply"], "verified": True, "line": e["outcome"]})
+        job.update(answered=len(found), text=f"{len(found)} of your nodes found by their alive messages")
+        return {"regions": [], "found": found}
 
     return 202, ctx.jobs.start("discover", work).snapshot()
 

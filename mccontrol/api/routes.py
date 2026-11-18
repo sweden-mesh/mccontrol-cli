@@ -54,7 +54,9 @@ def view(ctx, d, columns=None, width=100):
         out.setdefault(k, None)
     out.setdefault("notes", "")
     out["tagged"] = d["node"] in ctx.tags
-    out["broker"] = ctx.store.broker_for(d.get("region"))       # the region's own, or the shared one
+    out["scheme"] = actions.scheme(d)       # mcc3 (lou-20 and later) or the old IATA scheme
+    # mcc3 goes through the shared broker; the old scheme through the region's own, or the shared one
+    out["broker"] = ctx.store.config()["broker"] if out["scheme"] == "mcc3" else ctx.store.broker_for(d.get("region"))
     out["stale"] = directory.stale(d)
     out["cells"] = directory.cells(d)
     out["row"] = directory.row(d, width, columns=columns).rstrip()
@@ -253,8 +255,8 @@ def list_devices(ctx, _p, query, _b):
 
 def add_device(ctx, _p, _q, body):
     node, region = _str(body, "node"), _str(body, "region")
-    if not node or not region:
-        raise bad("a device needs node and region")
+    if not node:
+        raise bad("a device needs its node (8 hex, or the whole key); a region only for lou-19 and older")
     try:
         entry = ctx.store.add_device(_str(body, "name", "") or "", node, region, _str(body, "notes", "") or "",
                                      key=_str(body, "key"))
@@ -267,8 +269,8 @@ def add_device(ctx, _p, _q, body):
 
 def adopt(ctx, _p, _q, body):
     node, region = _str(body, "node"), _str(body, "region")
-    if not node or not region:
-        raise bad("adopt needs the found entry's node and region")
+    if not node or not (region or _str(body, "key")):
+        raise bad("adopt needs the found entry's node, and its region or its whole key")
     entry = actions.adopt(ctx.store, {"node": node, "region": region, "key": _str(body, "key")}, _str(body, "name", "") or "")
     return 201, view(ctx, entry)
 

@@ -367,11 +367,12 @@ def test_a_node_gets_v2_from_ar_13_and_v1_below(fleet, ver, tag):
     assert payload.startswith(tag + "|")
 
 
-def test_a_broadcast_stays_v1_whatever_the_versions(fleet):
+def test_a_region_act_sends_v2_to_each_node_that_opens_it(fleet):
     from mccontrol import actions
     fleet.update_device(NODE_PUB[:8], ver="x-ar-13-y")
-    _t, payload, _a, _l = actions.send(fleet, "get name", region="JKG", dry_run=True)
-    assert payload.startswith("v1|") and "/all/cmd" in _t
+    _t, _p, _a, lines = actions.send(fleet, "get name", region="JKG", dry_run=True)
+    assert _t is None and not any("/all/cmd" in l for l in lines)
+    assert any(l.startswith("v2|") for l in lines)
 
 
 def test_an_ar_13_node_without_its_whole_key_gets_v1(tmp_path, monkeypatch, fleet):

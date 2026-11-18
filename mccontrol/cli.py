@@ -4,16 +4,19 @@
     mccontrol keygen               make a signing key and print what to provision
     mccontrol key                  print the public key
     mccontrol config [--broker host] [--region-broker VGR=host] [--username u] [--password p]
-    mccontrol add <name> <8-hex node> <region> [notes...]
+    mccontrol add <name> <whole key>          a lou-20 node: no region
+    mccontrol add <name> <8-hex node> <region> [notes...]   lou-19 and older: its IATA
     mccontrol devices
     mccontrol send <device> <command...>      (--dry-run to only sign)
-    mccontrol send <region> <command...> --all   every node in that region
+    mccontrol send <county> <command...> --county   each of your nodes whose region home it is
+    mccontrol send <region> <command...> --all   each of your nodes in that IATA region
     mccontrol regions <device>
     mccontrol groups               your device groups and their members
     mccontrol group create|delete|add|remove <group> [device...]
     mccontrol group send <group> <command...>   each member in turn, on its own topic
     mccontrol history <device>
-    mccontrol discover <region> [--add]   the nodes there that accept your key
+    mccontrol discover [--add]     your nodes, wherever they are, from their alive messages
+    mccontrol discover <region>    lou-19 and older: the old read broadcast to an IATA region
     mccontrol test [--region R]    connect, sign in, subscribe and publish on the control broker
     mccontrol register             register your key with every broker in use (--region R: that one)
     mccontrol --api <url> ...      any of these through a running API instead of one of its own
@@ -61,15 +64,20 @@ def build_parser():
     a = sub.add_parser("add", help="remember a device")
     a.add_argument("name")
     a.add_argument("node", help="the first 8 hex characters of its public key (a whole key is fine)")
-    a.add_argument("region", help="the IATA code its observers use, e.g. JKG")
+    a.add_argument("region", nargs="?", default="",
+                   help="lou-19 and older: the IATA code its observers use, e.g. JKG; lou-20 and later need "
+                        "none (give the whole key; '-' for none before notes)")
     a.add_argument("notes", nargs="*")
     sub.add_parser("devices", help="list your devices")
     r = sub.add_parser("remove", help="forget a device")
     r.add_argument("device")
     s = sub.add_parser("send", help="sign and send a command")
-    s.add_argument("device", help="a device name, or a region code with --all")
+    s.add_argument("device", help="a device name; a county with --county; a region code with --all")
     s.add_argument("words", nargs="+", help="the command, e.g. region put se-jkp '*'")
-    s.add_argument("--all", action="store_true", help="every node in that region at once")
+    s.add_argument("--all", action="store_true", help="each of your nodes in that IATA region, one command each")
+    s.add_argument("--county", action="store_true",
+                   help="each of your nodes whose region home (from its alive) is that county, one command each, "
+                        "in random order, spaced 10-90 s (a restart 5-30 min)")
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
     s.add_argument("--via", choices=("mqtt", "mesh", "auto"), default="mqtt",
@@ -86,15 +94,17 @@ def build_parser():
     g.add_argument("device")
     al = sub.add_parser("alt", help="send shortcut n (Alt+n in the interface) to a device")
     al.add_argument("n", type=int)
-    al.add_argument("device", help="a device name, or a region code with --all")
-    al.add_argument("--all", action="store_true", help="every node in that region at once")
+    al.add_argument("device", help="a device name; a county with --county; a region code with --all")
+    al.add_argument("--all", action="store_true", help="each of your nodes in that IATA region, one command each")
+    al.add_argument("--county", action="store_true", help="each of your nodes in that county, one command each")
     al.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     al.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
     rn = sub.add_parser("run", help="send a command set, step by step, stopping at the first refusal")
     rn.add_argument("set", help="the set's name; 'mccontrol sets' lists them")
-    rn.add_argument("device", help="a device name, or a region code with --all")
+    rn.add_argument("device", help="a device name; a county with --county; a region code with --all")
     rn.add_argument("arg", nargs="?", default="", help="the value for {arg} in the set's steps")
-    rn.add_argument("--all", action="store_true", help="every node in that region at once")
+    rn.add_argument("--all", action="store_true", help="each of your nodes in that IATA region, one after another")
+    rn.add_argument("--county", action="store_true", help="each of your nodes in that county, one after another")
     rn.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     rn.add_argument("--yes", action="store_true", help="do not ask about a step that takes something away")
     st = sub.add_parser("sets", help="list the command sets, define one, or remove one")
@@ -119,8 +129,9 @@ def build_parser():
     t.add_argument("--region", help="test this region's broker instead of the shared one")
     rg = sub.add_parser("register", help="register your signing key with each broker in use, once; a broker then checks commands against it")
     rg.add_argument("--region", help="only this region's broker")
-    d = sub.add_parser("discover", help="find the nodes in a region that accept your key")
-    d.add_argument("region", help="the IATA code, e.g. JKG; several with commas, or '*' for every region you have")
+    d = sub.add_parser("discover", help="find your nodes: from their alive messages, or (lou-19 and older) in a region")
+    d.add_argument("region", nargs="?", default="",
+                   help="only for lou-19 and older: the IATA code, e.g. JKG; several with commas, or '*'")
     d.add_argument("--add", action="store_true", help="remember every node not yet in your list")
     d.add_argument("--wait-secs", type=float, default=None, help="how long to listen for answers")
     hp = sub.add_parser("help", help="the help topics as text")
@@ -288,8 +299,9 @@ def _config(api, args):
 
 
 def _add(api, args):
-    entry = api.add_device(args.node, args.region, name=args.name, notes=" ".join(args.notes))
-    print(f"added {entry['name']} ({entry['node'][:8]}) in {entry['region']}")
+    region = "" if args.region == "-" else args.region
+    entry = api.add_device(args.node, region, name=args.name, notes=" ".join(args.notes))
+    print(f"added {entry['name']} ({entry['node'][:8]})" + (f" in {entry['region']}" if entry["region"] else ""))
     return 0
 
 
@@ -299,7 +311,8 @@ def _devices(api, _args):
         print("no devices yet: mccontrol add <name> <node-hex>")
         return 0
     for d in rows:
-        print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {d.get('region', '?'):4}  via {d['broker']:24} "
+        where = d["scheme"] if d.get("scheme") == "mcc3" else (d.get("region") or "?")   # an IATA only where it is used
+        print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {where:4}  via {d['broker']:24} "
               f"last sent {d['last_sent'] or '-':20} {d['last_result'] or '':12} {d['notes']}")
     return 0
 
@@ -320,22 +333,34 @@ def _device(api, ref):
         raise ApiError(exc.code, f"no device matches {ref!r}; see 'mccontrol devices'", exc.status) from None
 
 
+def _area(args):
+    """`(device_ref, region, county)` from the send-like arguments."""
+    if getattr(args, "all", False) and getattr(args, "county", False):
+        raise ApiError("usage", "--all (an IATA region) or --county, not both", 0)
+    if getattr(args, "county", False):
+        return None, None, args.device.lower()
+    if getattr(args, "all", False):
+        return None, args.device.upper(), None
+    return args.device, None, None
+
+
 def _send(api, args, command=None):
     command = command or " ".join(args.words)
-    device = None if args.all else _device(api, args.device)
-    region = args.device.upper() if args.all else None
+    ref, region, county = _area(args)
+    device = _device(api, ref) if ref else None
     why = api.check_command(command)["caution"]
     if why and not args.dry_run and not args.yes:
-        where = f"EVERY node in {region}" if args.all else (device["name"] or device["node"])
+        where = f"each of your nodes in {region or county}" if device is None else (device["name"] or device["node"])
         print(f"'{command}' {why}\nSend it to {where}? [y/N] ", end="", flush=True)
         if input().strip().lower() != "y":
             print("not sent")
             return 2
     via = getattr(args, "via", "mqtt")
-    if via == "mesh" and args.all:
-        raise ApiError("refused", "the mesh road goes to one node at a time; a broadcast goes over MQTT", 0)
-    job = _job(api, api.start_send(command, devices=None if args.all else [device["node"]], region=region,
-                                   dry_run=args.dry_run, confirm=True, via=None if via == "mqtt" else via),
+    if via == "mesh" and device is None:
+        raise ApiError("refused", "the mesh road goes to one node at a time; an area act goes over MQTT", 0)
+    job = _job(api, api.start_send(command, devices=[device["node"]] if device else None, region=region,
+                                   county=county, dry_run=args.dry_run, confirm=True,
+                                   via=None if via == "mqtt" else via),
                quiet=args.dry_run)
     if job is None:
         return 130
@@ -427,24 +452,25 @@ def _run(api, args):
     steps = api.sets()["sets"].get(args.set.lower())
     if not steps:
         raise ApiError("not_found", f"no set named {args.set}; 'mccontrol sets' lists them", 0)
-    device = None if args.all else _device(api, args.device)
-    region = args.device.upper() if args.all else None
+    ref, region, county = _area(args)
+    device = _device(api, ref) if ref else None
     arg = args.arg.strip()
     if not args.dry_run and not args.yes and (arg or not any("{arg}" in s for s in steps)):
         filled = [s.replace("{arg}", arg) for s in steps]
         cautions = [f"'{s}' {why}" for s, why in ((s, api.check_command(s)["caution"]) for s in filled) if why]
         if cautions:
-            where = f"EVERY node in {region}" if args.all else (device["name"] or device["node"])
+            where = f"each of your nodes in {region or county}" if device is None else (device["name"] or device["node"])
             print("\n".join(cautions) + f"\nRun the set on {where}? [y/N] ", end="", flush=True)
             if input().strip().lower() != "y":
                 print("not sent")
                 return 2
-    job = _job(api, api.start_run_set(args.set.lower(), arg=args.arg, devices=None if args.all else [device["node"]],
-                                      region=region, dry_run=args.dry_run, confirm=True), quiet=args.dry_run)
+    job = _job(api, api.start_run_set(args.set.lower(), arg=args.arg, devices=[device["node"]] if device else None,
+                                      region=region, county=county, dry_run=args.dry_run, confirm=True),
+               quiet=args.dry_run)
     if job is None:
         return 130
     lines = job["result"]["lines"]
-    print("\n".join(lines if args.all else lines[1:]))       # one device: no "== name" heading
+    print("\n".join(lines if device is None else lines[1:]))       # one device: no "== name" heading
     return 0 if job["result"]["runs"][0]["stopped_at"] is None else 3
 
 
@@ -562,7 +588,7 @@ def _shortcuts(api, args):
 
 
 def _regions(api, args):
-    args.all, args.dry_run, args.yes = False, False, True
+    args.all, args.county, args.dry_run, args.yes = False, False, False, True
     return _send(api, args, command="region")
 
 
@@ -585,10 +611,19 @@ def _test(api, args):
 
 
 def _discover(api, args):
-    job = _job(api, api.start_discover(args.region, wait_secs=args.wait_secs, add=args.add))
+    job = _job(api, api.start_discover(args.region or None, wait_secs=args.wait_secs, add=args.add))
     if job is None:
         return 130
     found = job["result"]["found"]
+    if not args.region:
+        if not found:
+            print("no alive message opened with your key: no node of yours (lou-20 or later) is on the plane now")
+            return 0
+        for e in found:
+            mark = f"known as {e['known_as']}" if e["known_as"] else ("added" if e["added"] else "")
+            print(f"{e['node'][:8]}  {(e['name'] or '-')[:24]:24} {e['version'][:16]:16} {e['state']:9} {mark}")
+        print(f"via {found[0]['broker']}")
+        return 0
     if not found:
         print(f"no node in {args.region.upper()} answered a command signed with your key")
         return 0

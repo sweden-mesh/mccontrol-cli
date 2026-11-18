@@ -103,14 +103,15 @@ def test_two_regions_on_two_brokers_each_device_on_its_regions_broker(store, bro
     assert store.history("AB6B9285")[-1]["code"] == 0
 
 
-def test_a_broadcast_goes_to_its_regions_broker_and_hears_only_that_region(store, broker):
+def test_a_region_act_goes_to_its_regions_broker_one_node_each(store, broker, monkeypatch):
     store.set_region_broker("VGR", VGR)
+    monkeypatch.setattr(actions, "pause", lambda *a, **k: 0)
     broker.answers = [("VGR", "AB6B9285"), ("VGR", "13B58595")]
     _t, _p, answers, _l = actions.send(store, "get autoreply", region="VGR", wait_secs=0.1)
-    host, _u, password, subs, topic = broker.seen[-1]
-    assert (host, audience(password), topic) == (VGR, VGR, "meshcore/VGR/all/cmd")
+    assert sorted(t for *_x, t in broker.seen) == ["meshcore/VGR/13B58595/cmd", "meshcore/VGR/AB6B9285/cmd"]
+    assert {(h, audience(p)) for h, _u, p, _s, _t in broker.seen} == {(VGR, VGR)}
     assert sorted(answers) == ["13B58595", "AB6B9285"]
-    assert all(s.startswith("meshcore/VGR/") for s in subs)
+    assert all(s.startswith("meshcore/VGR/") for *_x, subs, _t in broker.seen for s in subs)
 
 
 def test_discovery_asks_the_regions_broker_and_marks_where_it_found_them(store, broker):
@@ -132,7 +133,7 @@ def test_several_regions_on_one_broker_are_told_apart_by_iata(store, broker):
     assert [e["node"] for e in found] == ["4AC61A7F"]
     broker.seen.clear()
     _t, _p, answers, _l = actions.send(store, "get autoreply", region="JKG", wait_secs=0.1)
-    assert list(answers) == ["4AC61A7F"] and broker.seen[0][4] == "meshcore/JKG/all/cmd"
+    assert list(answers) == ["4AC61A7F"] and broker.seen[0][4] == "meshcore/JKG/4AC61A7F/cmd"
 
 
 def test_registration_is_per_broker(store, monkeypatch):

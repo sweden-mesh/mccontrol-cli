@@ -2321,6 +2321,24 @@
       "type": "string",
       "nullable": true,
       "description": "the last answer that came over the mesh"
+     },
+     "scheme": {
+      "type": "string",
+      "enum": [
+       "mcc3",
+       "old"
+      ],
+      "description": "the plane the node speaks: mcc3 (its alive opened with your key, or lou-20 and later) or old (the per-node IATA scheme of lou-19 and older)"
+     },
+     "alive": {
+      "type": "object",
+      "nullable": true,
+      "description": "the last alive message of this node that opened with your key: state, at, version, region (its region home), name, boot, sequence, last_counter, flags, old_scheme ..."
+     },
+     "counter": {
+      "type": "integer",
+      "nullable": true,
+      "description": "the last mcc3 counter sent to it"
      }
     },
     "example": {
@@ -2426,7 +2444,8 @@
       "description": "8 hex, or the whole 64-hex key"
      },
      "region": {
-      "type": "string"
+      "type": "string",
+      "description": "lou-19 and older: the IATA code; empty or '-' for lou-20 and later given by the whole key"
      },
      "notes": {
       "type": "string"
@@ -2443,8 +2462,7 @@
      "notes": "the bench repeater"
     },
     "required": [
-     "node",
-     "region"
+     "node"
     ]
    },
    "DeviceChange": {
@@ -2500,8 +2518,7 @@
      "name": "SE-JKG-UGORptr"
     },
     "required": [
-     "node",
-     "region"
+     "node"
     ]
    },
    "Forgot": {
@@ -3564,7 +3581,8 @@
       "description": "a group's name: each member gets its own per-node command, in turn"
      },
      "region": {
-      "type": "string"
+      "type": "string",
+      "description": "an IATA code (lou-19 and older): each of your devices with that region, one per-node command each, in random order and spaced as for county; never a broadcast"
      },
      "dry_run": {
       "type": "boolean"
@@ -3585,9 +3603,13 @@
       ],
       "default": "mqtt",
       "description": "the road: mqtt (the default); mesh, through your companion (one node at a time, the command at most 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh for a mesh-only node, a command only the mesh admits, or a node not heard over MQTT for mesh_after_mins, else MQTT and the mesh if the broker cannot be reached, and MQTT again when the node answers mesh-closed"
+     },
+     "county": {
+      "type": "string",
+      "description": "a county: each of your devices whose alive message names it as its region home (lou-20 and later), one sealed per-node command each, in random order, spaced 10-90 s (a restart 5-30 min)"
      }
     },
-    "description": "Exactly one target: devices, tagged (the tagged devices), group (its members, one by one), or region (one broadcast).",
+    "description": "Exactly one target: devices, tagged (the tagged devices), group (its members, one by one), region (an IATA code) or county (a region home): every target is one per-node command per device, never a broadcast.",
     "example": {
      "command": "region",
      "tagged": true
@@ -3629,6 +3651,10 @@
      },
      "wait_secs": {
       "type": "number"
+     },
+     "county": {
+      "type": "string",
+      "description": "a county: each of your devices whose alive names it as region home, one after another"
      }
     },
     "example": {
@@ -3648,7 +3674,7 @@
     "properties": {
      "region": {
       "type": "string",
-      "description": "JKG, several with commas, or * for every region you have"
+      "description": "lou-19 and older only: JKG, several with commas, or * for every region you have; without it, your nodes from their alive messages (mcc3, lou-20 and later), wherever they are"
      },
      "wait_secs": {
       "type": "number"
@@ -3658,12 +3684,8 @@
       "description": "remember every node not yet in the directory"
      }
     },
-    "example": {
-     "region": "JKG, GOT"
-    },
-    "required": [
-     "region"
-    ]
+    "example": {},
+    "required": []
    },
    "TargetsJob": {
     "type": "object",
@@ -3810,7 +3832,8 @@
       "type": "string"
      },
      "region": {
-      "type": "string"
+      "type": "string",
+      "description": "the IATA region asked (old scheme); empty for a node found by its alive"
      },
      "code": {
       "type": "integer"
@@ -3842,6 +3865,26 @@
      "broker": {
       "type": "string",
       "description": "the broker the region was asked on"
+     },
+     "scheme": {
+      "type": "string",
+      "enum": [
+       "mcc3"
+      ],
+      "description": "present for a node found by its alive message"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "online",
+       "offline",
+       "not-yours"
+      ],
+      "description": "from the alive scan: online (its alive opened), offline (its will cleared it), not-yours (it no longer opens with your key)"
+     },
+     "version": {
+      "type": "string",
+      "description": "the firmware version its alive message carries"
      }
     },
     "required": [

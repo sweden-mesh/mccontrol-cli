@@ -241,10 +241,11 @@ def test_a_send_is_refused_before_anything_is_signed(api):
     assert status == 400 and body["error"]["code"] == "refused" and "denied" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "trigger test", "region": "JKG"})
     assert status == 400 and "transmits" in body["error"]["message"]
+    # a restart goes to an area one node at a time, spaced (actions.pause): asked first, as for one node
     status, body = call(url, "POST", "/jobs/send", {"command": "ota update", "region": "JKG"})
-    assert status == 400 and "one node at a time" in body["error"]["message"]
-    status, body = call(url, "POST", "/jobs/send", {"command": "reboot", "region": "JKG"})
-    assert status == 400 and "one node at a time" in body["error"]["message"]
+    assert status == 409 and body["error"]["code"] == "confirm_required"
+    status, body = call(url, "POST", "/jobs/send", {"command": "get name", "region": "XYZ"})
+    assert status == 400 and "no device of yours in XYZ" in body["error"]["message"]
     status, body = call(url, "POST", "/jobs/send", {"command": "region denyf *", "devices": ["gisebo"]})
     assert status == 409 and body["error"]["code"] == "confirm_required" and "no scope" in body["error"]["message"]
     assert body["error"]["cautions"] == [{"command": "region denyf *", "caution": body["error"]["cautions"][0]["caution"]}]
@@ -298,12 +299,13 @@ def _help14():
     return envelope.RESULT_HELP[14]
 
 
-def test_a_region_broadcast_counts_the_known_nodes_and_a_dry_run_sends_nothing(api, monkeypatch):
+def test_a_region_act_is_one_command_per_node_and_a_dry_run_sends_nothing(api, monkeypatch):
     _server, url, store = api
     job = run(url, "send", {"command": "get autoreply", "region": "jkg"})
-    assert job["progress"]["text"] == "2 of 2 known answered"
+    assert job["progress"]["text"] == "2 of 2 answered"
     assert {o["node"] for o in job["outcomes"]} == {"4AC61A7F", "65C1D12C"}
-    assert job["result"]["topics"] == ["meshcore/JKG/all/cmd"]
+    assert sorted(job["result"]["topics"]) == ["meshcore/JKG/4AC61A7F/cmd", "meshcore/JKG/65C1D12C/cmd"]
+    assert store.history(None)[-1]["note"] == "2 of 2 answered"
     monkeypatch.setattr(transport, "send", lambda *a, **k: pytest.fail("sent"))
     job = run(url, "send", {"command": "region denyf *", "devices": ["gisebo"], "dry_run": True})
     assert job["result"]["lines"][-1] == "not sent (dry run)" and job["outcomes"][0]["line"] == "not sent (dry run)"
@@ -357,7 +359,7 @@ def test_discovery_finds_names_and_adopts_with_add(api):
     assert {"4AC61A7F", "AB6B9285"} <= set(job["progress"]["heard"])     # who answered, during the wait
     assert found["AB6B9285"]["added"] and found["AB6B9285"]["name"] == "SE-JKG-UGORptr"
     assert call(url, "GET", "/devices/AB6B9285")[1]["name"] == "SE-JKG-UGORptr"
-    assert call(url, "POST", "/jobs/discover", {"region": " "})[0] == 400
+    assert call(url, "POST", "/jobs/discover", {"region": 5})[0] == 400
 
 
 def test_names_versions_fleet_and_statistics(api, monkeypatch):
