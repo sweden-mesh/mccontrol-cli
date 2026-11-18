@@ -418,3 +418,30 @@ def test_a_forged_r3_is_a_bad_signature_everywhere(fleet):
     assert lines[0].split(None, 1)[1].startswith("BAD SIGNATURE")
     assert fleet.history(node)[-1]["verified"] is False
     assert "get name" not in (fleet.device(node).get("reads") or {})
+
+
+def test_a_refused_v2_comes_back_as_an_r2_without_its_command_and_is_read(fleet):
+    # From lou-19 a node seals only a command that ran: a refusal leaves the counter unused,
+    # and a second r3 under it would repeat the nonce. It answers an r2, the command left out.
+    from Crypto.Signature import eddsa
+    from mccontrol import actions
+    node = NODE_PUB[:8]
+    fleet.update_device(node, ver="x-lou-19-y")
+    real = _Broker.publish
+
+    def refusing(self, topic, payload, qos=0):
+        line = f"r2|{payload.split('|')[1]}|9||"
+        res = topic[:-3] + "res"
+        sig = eddsa.new(envelope.key_from_seed(NODE_SEED), "rfc8032").sign(envelope.signed_message(res, line))
+        _Broker.forge = f"{line}|{sig.hex().upper()}"
+        return real(self, topic, payload, qos)
+    _Broker.publish = refusing
+    try:
+        _t, payload, answers, lines = actions.send(fleet, "get name", device=fleet.device(node))
+    finally:
+        _Broker.publish = real
+    assert payload.startswith("v2|")
+    got = answers[node]
+    assert got.verified is True and got.code == 9 and got.command == "get name" and not got.ok
+    assert lines[0].split(None, 1)[1].startswith("refused: replay [signed]")
+    assert fleet.history(node)[-1]["code"] == 9 and fleet.history(node)[-1]["verified"] is True

@@ -315,6 +315,8 @@ def vectors():
     r("r2", r2, topic=rtopic, key_hex=node)
     r("r2", r2)                                                    # no key: unverified, not refused
     r("r2", r2.replace("SE-JKG-Test", "SE-JKG-Evil"), topic=rtopic, key_hex=node)
+    refused = f"r2|{TEST_NOW + 4}|9||"                             # a refused v2 (lou-19): no command
+    r("r2", f"{refused}|{_sign_node(rtopic, refused)}", topic=rtopic, key_hex=node)
     r("r3", _r3(topic, TEST_NOW, 0, "ver", "> esp32s3-v1.17.1-lou-18-arrc-observer-1a2b3c4d"))
     r("r3", _r3(topic, TEST_NOW + 1, 14, "set prv.key x", ""))
     r("r3", _r3(topic, TEST_NOW + 2, 0, "neighbors", "> " + "AABBCCDD:-5:10," * 20))      # second pad

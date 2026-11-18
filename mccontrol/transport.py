@@ -143,6 +143,8 @@ def send(config, seed_hex, topic, command, nodes_to_hear=(), wait_secs=20.0, ttl
             result = envelope.parse_result(msg.payload, node, topic=msg.topic, key_hex=key_hex)
         if result is None or result.counter != counter:
             return
+        if not result.command:      # a refused v2 comes back as an r2 without its sealed command (lou-19)
+            result.command = command
         with lock:
             answers[node] = result
             if wanted and wanted <= set(answers):
