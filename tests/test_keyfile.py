@@ -1,5 +1,5 @@
 """The key backup file (keyfile.py): round trips, refusals, the shared vectors the web app
-reads too (web/test/key-backup-vectors.json), and `mccontrol key export/import`."""
+reads too (spec/vectors/key-backup-vectors.json, from mccontrol-spec), and `mccontrol key export/import`."""
 import copy
 import getpass
 import json
@@ -11,7 +11,7 @@ import pytest
 
 from mccontrol import cli, envelope, keyfile, store
 
-VECTORS = json.loads((pathlib.Path(__file__).parents[1] / "web" / "test" / "key-backup-vectors.json")
+VECTORS = json.loads((pathlib.Path(__file__).parents[1] / "spec" / "vectors" / "key-backup-vectors.json")
                      .read_text(encoding="utf-8"))
 SEED = VECTORS["seed"]
 PASS = VECTORS["passphrase"]

@@ -1,9 +1,26 @@
-# mccontrol
+# mccontrol-cli
 
 For the people who run MeshCore Observer repeaters: sign a command with a key kept on your
 machine, send it to one repeater, to the ones you tagged, or to every repeater in a region,
 see what came back, and keep a history per device. One backend, three interfaces on it, and a
-command line.
+command line. Python, in a terminal.
+
+What it is not: not a broker, not firmware, and not the browser app. It never changes a
+repeater's key, identity or radio (the deny list keeps those to the serial cable), and it sends
+nothing unless you ask it to.
+
+mccontrol is four repositories:
+
+- **mccontrol-cli** (this one): the terminal tool, and the reference implementation of the
+  protocol. It writes the spec's tables and test vectors from its own code.
+- [mccontrol-web](https://github.com/sweden-mesh/mccontrol-web): the same tool in the browser,
+  the key kept in the browser; at [mccontrol.meshcoresverige.se](https://mccontrol.meshcoresverige.se).
+- [mccontrol-spec](https://github.com/sweden-mesh/mccontrol-spec): the wire format, the command
+  table, the deny list and the shared test vectors, as documents and JSON. Both apps pin a tag
+  of it; this one keeps its copy in `spec/`.
+- [mccontrol](https://github.com/sweden-mesh/mccontrol): a landing page pointing at the three.
+
+The firmware they talk to is [MeshCore-lou](https://github.com/sweden-mesh/MeshCore-lou).
 
 ## The backend and the API
 
@@ -77,7 +94,7 @@ its page; a fourth one is a directory more. Without a terminal each says so and 
 ## Install
 
 ```
-pip install git+https://github.com/sweden-mesh/mccontrol   # or `pip install .` in a clone
+pip install git+https://github.com/sweden-mesh/mccontrol-cli   # or `pip install .` in a clone
 mccontrol keygen                                  # once; prints the two serial commands
 mccontrol register                                # once per broker; the broker then checks your commands
 mccontrol test                                    # connect, sign in, subscribe, publish, receive
@@ -201,8 +218,8 @@ device's `mesh_only` flag) takes commands over the mesh alone, signed for
 `meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update`, `mqtt.cmd ping` and
 the broker slots' settings (`set mqttN.*`). On an Observer node the mesh road already reaches
 those slot settings, so a broken Observer feed can be repaired over the mesh.
-The bytes are in `planning/firmware/otm-wire-format-20261117.md` of the workspace and pinned, with
-that document's worked vectors, in `web/test/vectors.json` (`mesh`).
+The bytes are in mccontrol-spec's [wire format](https://github.com/sweden-mesh/mccontrol-spec/blob/main/docs/wire-format.md)
+and pinned, with the firmware's own worked vectors, in `spec/vectors/vectors.json` (`mesh`).
 
 ## Your own region
 
@@ -321,10 +338,15 @@ every function key, option and verb pressed once, on an 80x24 and a wider termin
 `python scripts/screenshots.py` remakes `docs/screenshots/` from an invented fleet (it needs
 headless Chromium; `--only <name>` for one picture, `--keep-html` to keep the pages it renders).
 
-## The web app
+## The spec
 
-`web/` is mccontrol in the browser, being built: a static page with the key in the browser,
-no build step. Its conventions, layout and how to run it are in [web/README.md](web/README.md).
-`python -m mccontrol.webexport` writes the behaviour it shares with this package (commands,
-deny list, cautions, result codes, facts, help, firmware checks, brokers) and the shared test
-vectors as JSON; `tests/test_webexport.py` fails when they are stale.
+The behaviour the web app shares with this package -- commands, deny list, cautions, result
+codes, facts, help, firmware checks, brokers, areas, the protocol's constants -- and the shared
+test vectors live in [mccontrol-spec](https://github.com/sweden-mesh/mccontrol-spec).
+`spec/` is a copy of one of its tags, made by `python scripts/spec_sync.py <tag>` (or
+`--from ../mccontrol-spec`), and checked offline by `tests/test_spec.py`;
+`python scripts/spec_sync.py --check` compares it with GitHub.
+
+`python -m mccontrol.webexport --out ../mccontrol-spec` writes those files from this package's
+code, and `tests/test_webexport.py` fails when that differs from `spec/`. A change that alters
+them is released as a new spec tag, then synced here and in mccontrol-web.

@@ -1,13 +1,15 @@
 """The behaviour the web app shares with this package, written out as JSON, so it exists once.
 
-`python -m mccontrol.webexport` (from a clone) writes `web/lib/data/*.json` -- the command
+`python -m mccontrol.webexport [--out DIR]` (from a clone) writes the mccontrol-spec repository's
+files into DIR (default: a mccontrol-spec clone beside this one): `data/*.json` -- the command
 table, cautions, deny list, result codes and their help, facts, help topics, firmware
-capabilities, brokers, the areas (county, scope, IATA) and the protocol's constants -- and `web/test/vectors.json`: fixed
+capabilities, brokers, the areas (county, scope, IATA) and the protocol's constants -- and `vectors/vectors.json`: fixed
 inputs and the exact output this package gives for them (envelopes v1 and v2, results r1, r2
 and r3, the broker token, the registration line, the checks the screens make before
 signing, and the mesh road's request and response bytes with the wire-format document's own
 worked vectors), so the JavaScript ports can prove byte-identical behaviour.
-`tests/test_webexport.py` fails when any committed file differs from what this writes.
+`tests/test_webexport.py` fails when the vendored copy of the spec (`spec/`, pinned by tag with
+`scripts/spec_sync.py`) differs from what this writes: a change here ships as a new spec tag.
 
 The vectors use a seed made here from a fixed phrase, never a real key.
 """
@@ -19,7 +21,7 @@ import pathlib
 from . import actions, areas, commands, denylist, envelope, facts, firmware, helptext, mesh, store, token
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+SPEC = ROOT.parent / "mccontrol-spec"         # the default --out: a spec clone beside this one
 
 # Not anyone's key: SHA-256 of a phrase, so anyone can make the same vectors.
 TEST_SEED = hashlib.sha256(b"mccontrol web test vectors: owner seed").hexdigest()
@@ -38,7 +40,7 @@ def _source(*modules):
 
 
 def data():
-    """`{file name: object}` for `web/lib/data/`."""
+    """`{file name: object}` for the spec's `data/`."""
     return {
         "commands.json": {
             "_source": _source("mccontrol/commands.py"),
@@ -508,15 +510,20 @@ def _dump(obj):
 
 
 def files():
-    """`{path relative to the repository: text}` of everything this module writes."""
-    out = {f"web/lib/data/{name}": _dump(obj) for name, obj in data().items()}
-    out["web/test/vectors.json"] = _dump(vectors())
+    """`{path relative to the spec repository: text}` of everything this module writes."""
+    out = {f"data/{name}": _dump(obj) for name, obj in data().items()}
+    out["vectors/vectors.json"] = _dump(vectors())
     return out
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(prog="python -m mccontrol.webexport",
+                                     description="write the spec's data and vectors into a mccontrol-spec clone")
+    parser.add_argument("--out", type=pathlib.Path, default=SPEC, help=f"the spec clone (default {SPEC})")
+    out = parser.parse_args(argv).out
     for rel, text in files().items():
-        path = ROOT / rel
+        path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         print(rel)

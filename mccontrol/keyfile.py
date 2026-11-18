@@ -1,5 +1,5 @@
 """The key backup file: the signing seed encrypted under a passphrase, the one form in which a
-seed leaves the machine. The web app writes and reads the same file (web/lib/key/backup.js),
+seed leaves the machine. The web app writes and reads the same file (mccontrol-web, web/lib/key/backup.js),
 so a key moves both ways: `mccontrol key export FILE` / `mccontrol key import FILE`.
 
     {"format": "mccontrol-key-backup", "version": 1,

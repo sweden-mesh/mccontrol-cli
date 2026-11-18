@@ -1,13 +1,17 @@
-"""The web app's copy of this package's behaviour (web/lib/data/*.json) and the shared test
-vectors (web/test/vectors.json) must be what `python -m mccontrol.webexport` writes now."""
+"""The spec this package is pinned to (spec/, a tag of mccontrol-spec: data/*.json and
+vectors/vectors.json, which mccontrol-web reads too) must be what `python -m mccontrol.webexport`
+writes now. A change that alters them ships as a new spec tag, then scripts/spec_sync.py."""
 from mccontrol import envelope, token, webexport
+
+SPEC = webexport.ROOT / "spec"
 
 
 def test_committed_json_is_current():
     stale = [rel for rel, text in webexport.files().items()
-             if not (webexport.ROOT / rel).is_file()
-             or (webexport.ROOT / rel).read_text(encoding="utf-8") != text]
-    assert not stale, f"stale: {', '.join(stale)}; run `python -m mccontrol.webexport` and commit"
+             if not (SPEC / rel).is_file()
+             or (SPEC / rel).read_text(encoding="utf-8") != text]
+    assert not stale, (f"differs from the pinned spec: {', '.join(stale)}; run `python -m mccontrol.webexport "
+                       f"--out ../mccontrol-spec`, tag the spec, then `python scripts/spec_sync.py <tag>`")
 
 
 def test_vectors_are_deterministic():

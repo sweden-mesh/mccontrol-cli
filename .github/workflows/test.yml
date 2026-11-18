@@ -1,0 +1,21 @@
+# The Python package's tests, and that spec/ is the mccontrol-spec tag it names.
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e '.[test]'
+      - run: python -m pytest -q
+      - name: spec/ equals its tag on GitHub
+        run: python scripts/spec_sync.py --check

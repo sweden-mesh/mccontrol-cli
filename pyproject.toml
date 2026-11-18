@@ -11,6 +11,11 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = ["pycryptodome>=3.19", "paho-mqtt>=2.0"]
 
+[project.urls]
+Homepage = "https://github.com/sweden-mesh/mccontrol"
+Source = "https://github.com/sweden-mesh/mccontrol-cli"
+Spec = "https://github.com/sweden-mesh/mccontrol-spec"
+
 [project.optional-dependencies]
 test = ["pytest>=7"]
 mesh = ["meshcore>=2.3.9"]

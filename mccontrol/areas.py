@@ -12,7 +12,7 @@ which is where the sites read them:
 
 `tests/test_areas.py` compares this table with a template checkout beside this repository
 (or at `$MCCONTROL_TEMPLATE`) and fails when they differ; `python -m mccontrol.webexport`
-writes it to `web/lib/data/areas.json`.
+writes it to mccontrol-spec's `data/areas.json`.
 """
 
 import csv
