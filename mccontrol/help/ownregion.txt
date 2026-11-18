@@ -1,5 +1,8 @@
 Your own region
 
+This is for nodes on lou-19 and older. From lou-20 every node uses the
+shared broker, with no region and no IATA in its topics.
+
 Every region can use the shared broker, mqtt-meshcore.louie.se. It serves
 every IATA: keys register there, commands fan out there, and each
 region's nodes are told apart by the IATA in their topics. A region can

@@ -1,6 +1,13 @@
 Discovering repeaters
 
-A discovery asks for a region, then sends one harmless read ("get
+Nodes on lou-20 or later are found from their alive messages: each keeps
+a sealed message on the broker that only its owner's key opens.
+"mccontrol discover" (no region) reads them all, sends nothing, and lists
+the nodes that are yours wherever they are: online, offline, or no longer
+yours (given another key). "--add" keeps them; they need no region.
+
+Nodes on lou-19 or older are found by region. A discovery asks for a
+region, then sends one harmless read ("get
 autoreply"), signed with your key, to that region's broadcast topic, and
 listens for answers. Only a node that verified your signature publishes
 a result, so every node in the list is yours; a node with another key,
