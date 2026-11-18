@@ -4,13 +4,15 @@ A send goes to the tagged devices, or to the current device when nothing
 is tagged. Each device gets its own signed publish; the results are shown
 as they come back, one line per device, with how many answered.
 
-A send to every node in a region is one signed publish to the region's
-broadcast topic, answered by every node there that holds your key. A
-command that transmits on the air (a "trigger") cannot be sent to a
-region; the firmware refuses it and so does this.
+There is no broadcast. A send to a region (or, from the command line, to
+a county with --county) sends each of your devices there its own
+command, one after another in random order, spaced 10-90 s apart (5-30
+min for a restart). A command that transmits on the air (a "trigger")
+cannot be sent to a region; send it to one device.
 
-Tagged devices in two different regions cannot be sent to at once: a send
-is to one region.
+A node on lou-20 or later gets a sealed command on its own topic, with no
+region; one on lou-19 or older the old per-node scheme on its region.
+The device view says which.
 
 Commands that take something away ask first; see [[cautions]]. For what a
 repeater admits, see [[commands]]. A refusal is explained in words:

@@ -18,6 +18,11 @@ Switch on while it works
   Set your companion once:
     mccontrol config --companion tcp:10.0.0.5:5000
     (or serial:/dev/ttyACM0, or ble:AA:BB:CC:DD:EE:FF)
+  A tcp: companion runs the Wi-Fi companion firmware, which listens on
+  port 5000 and serves one client: each mesh command drops whatever held
+  it (the phone app). To share it, put a mux in front and give mccontrol
+  the mux's port (tcp:<host>:5001). The web app reaches it through
+  mccontrol-bridge.
 
 The recipe
   1. Connect your companion, in reach of the node or of the mesh.
@@ -36,7 +41,8 @@ What the mesh road admits
   set mqtt.cmd on <host>. The broker slots' settings (set mqttN.*) travel
   too, so a broken Observer feed can be repaired over the mesh as well.
   Everything else denied stays denied. A command
-  is at most 59 bytes, checked before it is signed. One node at a time,
+  is at most 57 bytes to a node on lou-20 or later (sealed) and 59 to
+  one on lou-19, checked before it is signed. One node at a time,
   never a region; the node answers at most one command a minute and ten
   an hour this way, since each costs airtime on a shared network.
 
