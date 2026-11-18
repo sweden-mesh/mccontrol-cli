@@ -153,7 +153,7 @@ def test_the_small_pieces():
     split = fmt.pubkey_lines(key, 80)
     assert "".join(l.split()[-1] for l in split[:2]) == key and all(len(l) < 78 for l in split)
     assert fmt.build("set autoreply", ["off"]) == "set autoreply off" and fmt.build("ver", []) == "ver"
-    assert len({fmt.dots(l).index(":") for l in ("Name", "Region", "Statistics URL", "Or every node in region")}) == 1
+    assert len({fmt.dots(l).index(":") for l in ("Name", "Region", "Statistics URL", "Or each device in region")}) == 1
     assert fmt.split_verb("  SEND Far ver ") == ("send", "Far ver") and fmt.split_verb("") == ("", "")
     assert fmt.history_out({"code": 0, "reply": ""}) == "OK"
     assert fmt.history_out({"code": 14, "code_name": "not-allowed"}) == "refused not-allowed"
@@ -259,8 +259,8 @@ def test_tags_across_two_regions_are_refused(api):
 def test_3_sends_to_every_node_in_a_region_and_12_shows_the_broadcast(api):
     _server, _url, store = api
     text = walk(api, [(b"3\r", 0.6), (b"\t", 0.2), (b"region put se-jkp *\r", 1.2), (F[3], 0.4), (b"12\r", 0.6)])
-    assert "Send a Command to Every Node in a Region" in text
-    assert "EVERY node in JKG" in text and "2 of 2 answered." in text
+    assert "Send a Command to Each Device in a Region" in text
+    assert "EACH device in JKG" in text and "2 of 2 answered." in text
     assert "Display Command History" in text and "JKG*   | > region put se-jkp *" in text
     assert "| < 2 of 2 answered" in text
     assert [l["command"] for l in store.history(None)] == ["region put se-jkp *"]

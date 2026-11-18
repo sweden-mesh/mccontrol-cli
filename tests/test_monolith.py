@@ -376,7 +376,7 @@ def test_tags_across_two_regions_are_refused(tmp_path):
 
 def test_a_sends_to_every_node_in_a_region(tmp_path):
     text, home = walk(tmp_path, [(DOWN, 0.3), (b"a", 0.5), (b"\r", 0.5), (b"get name", 0.3), (b"\r", 2.0)])
-    assert "Send to every node in which region?" in text and "To every node in JKG" in text
+    assert "Send to each of your devices in which region?" in text and "To each of your devices in JKG" in text
     assert _history(home, "4AC61A7F")[-1]["topic"] == "meshcore/JKG/4AC61A7F/cmd"      # its own, no broadcast
     assert not _history(home, "FD700369")                     # Far is in GOT and is not asked
 

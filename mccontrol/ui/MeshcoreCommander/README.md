@@ -92,9 +92,9 @@ window, closed with Enter.
 | Enter | the command list for the cursor device, by group, type to filter; a command's parameter is asked for as radio buttons, checkboxes or a text field with examples, and the reply opens when it arrives. Commands the device's firmware does not admit are grey and skipped (`mccontrol/firmware.py` knows what each build admits; an unknown version counts as the oldest) |
 | F3 | the cursor device's history as a window; on the right panel, Enter opens a reply |
 | F4 | edit the device: name, region, notes |
-| F5 | discover: the repeaters in a region that accept your key (`JKG, GOT` for several, `*` for every region you have); on the found list, F5 adds the tagged and F7 adds all |
+| F5 | discover (lou-19 and older): the repeaters in a region that accept your key (`JKG, GOT` for several, `*` for every region you have); on the found list, F5 adds the tagged and F7 adds all |
 | F6 | read the cursor device's region map |
-| F7 | send a command to every node in a region |
+| F7 | send a command to each of your devices in a region, one command each |
 | F8 | forget the cursor device |
 | F9 / F10 | the menu / quit |
 | Options > Broker | the control broker: host, port, TLS on or off, credentials |
@@ -113,7 +113,7 @@ F9, or Alt and the title's first letter:
 
 - **Devices**: Discover, Edit, Forget, sort by name, region, last sent or version, Names and
   versions, Tag all in region, Untag region, Clear tags.
-- **Send**: to the tagged or cursor device, to all in a region, Read regions, Command set, and
+- **Send**: to the tagged or cursor device, to each in a region, Read regions, Command set, and
   each shortcut with its Alt key.
 - **View**: Statistics, Last 48 hours, Last 7 days, Refresh Batt/Seen, Command history, Command
   line output.
@@ -124,6 +124,6 @@ F9, or Alt and the title's first letter:
 - **Help**: Contents, This screen, Keys, Commands, Quit.
 
 Commands that take something away (`region denyf *`, `region remove`, `set repeat off`, ...)
-say what they do and ask first; a command that transmits is refused as a broadcast, as the
-firmware refuses it. Help (F1) explains each screen and dialog; `mccontrol help keys` prints the
+say what they do and ask first; a command that transmits is refused for a region: send it to one
+device. Help (F1) explains each screen and dialog; `mccontrol help keys` prints the
 shared topics.

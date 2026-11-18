@@ -90,7 +90,7 @@ class App:
 
     def send_menu(self):
         """The Send menu lists the shortcuts with their keys, as Turbo Vision showed them."""
-        items = [MenuItem("To tagged or cursor", "send", "F2"), MenuItem("To all in a region", "all", "F7"),
+        items = [MenuItem("To tagged or cursor", "send", "F2"), MenuItem("To each in a region", "all", "F7"),
                  MenuItem("Read regions", "regions", "F6"), MenuItem("Command set", "runset")]
         items += [MenuItem(cmd[:28], f"alt:{n}", f"Alt+{n}")
                   for n, cmd in enumerate(self.client.shortcuts()["shortcuts"], 1) if cmd]
@@ -559,7 +559,7 @@ class App:
         elif action.startswith("alt:"):
             self.shortcut(int(action[4:]))
         elif action == "all":
-            region = self.ask_region("Send to every node in which region?")
+            region = self.ask_region("Send to each of your devices in which region?")
             if region:
                 self.send(region=region)
         else:
@@ -778,7 +778,7 @@ class App:
             self.refuse("The tagged devices span more than one region; a send is to one region.")
             return None
         if region:
-            target_line = f"EVERY node in {region}"
+            target_line = f"EACH of your devices in {region}"
         elif len(targets) == 1:
             target_line = f"{targets[0].get('name') or targets[0]['node']}  ({targets[0]['node']}, {targets[0].get('region') or '?'})"
         else:
@@ -822,7 +822,7 @@ class App:
                 return
             lines, stopped = [], None
             if region:
-                job, _box = self.job(f"Running {setname}", f"Every node in {region}, {len(steps)} steps",
+                job, _box = self.job(f"Running {setname}", f"Each of your devices in {region}, {len(steps)} steps",
                                      lambda j: f"{len(j['progress']['heard'])} answered this step",
                                      self.client.start_run_set, setname, arg=arg.value, region=region, confirm=True)
                 lines, stopped = job["result"]["lines"], job["result"]["runs"][0]["stopped_at"]
@@ -1065,7 +1065,7 @@ class App:
         try:
             if region:
                 expected = [d["node"] for d in self.devices if (d.get("region") or "").upper() == region]
-                job, _box = self.job("Sending", f"{command[:40]}  to every node in {region}",
+                job, _box = self.job("Sending", f"{command[:40]}  to each of your devices in {region}",
                                      lambda j: f"{len(j['progress']['heard'])} of {len(expected)} known answered",
                                      self.client.start_send, command, region=region, confirm=True)
                 answered, lines, asked = job["result"]["answered"], job["result"]["lines"], len(expected)

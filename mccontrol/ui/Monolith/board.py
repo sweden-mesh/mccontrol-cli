@@ -984,7 +984,7 @@ class Board:
     def aim(self, region=None):
         """Where a send goes, as the job's target arguments, and a label for it."""
         if region:
-            return {"region": region}, f"every node in {region}"
+            return {"region": region}, f"each of your devices in {region}"
         tagged = self.tagged
         if tagged:
             if len({d["region"] for d in tagged}) > 1:
@@ -1002,7 +1002,7 @@ class Board:
 
     def actions(self):
         """The interface's own entries for the palette: `(label, (verb, arg))`."""
-        out = [("send a command", ("send", None)), ("send to every node in a region", ("region", None)),
+        out = [("send a command", ("send", None)), ("send to each of your devices in a region", ("region", None)),
                ("run a command set", ("runset", None)), ("save a command set", ("saveset", None)),
                ("remove a command set", ("removeset", None)), ("discover a region", ("discover", None)),
                ("names and versions", ("names", None)), ("fleet refresh: battery and seen", ("fleet", None)),
@@ -1092,7 +1092,7 @@ class Board:
             self.send(command, region)
 
     def v_region(self, _arg):
-        region = self.ask_region("Send to every node in which region?")
+        region = self.ask_region("Send to each of your devices in which region?")
         self.v_send(None, region=region)
 
     def ask_region(self, question, hint=None):

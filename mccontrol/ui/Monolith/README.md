@@ -122,7 +122,7 @@ header is the block-letter title:
          │ > get tx.delay
          │ < 0.5
   ```
-  A region broadcast is a block of its own (`JKG*`); a forged reply reads BAD SIGNATURE in the
+  A send to a region is a block of its own (`JKG*`); a forged reply reads BAD SIGNATURE in the
   alert colour, an unsigned one is dim, a cut line ends in `…`. Under DEVICES at 80x24, under
   STATUS from 120 columns. It scrolls when Tab reaches it; `h` opens the cursor device's whole
   history. It asks every device every 30 s, and after a verb only the devices it sent to.
@@ -139,12 +139,12 @@ left says how the last thing came out.
 | Enter | on a device: its command list, greyed where its firmware lacks one; on a STATS row: read it again; on a result: open it |
 | Space, Ins | tag the device; `*` invert; `+` `-` tag or untag a region |
 | `c` | send a command to the tagged devices, or the cursor device |
-| `a` | send a command to every node in a region |
+| `a` | send a command to each of your devices in a region, one command each |
 | Alt+1..9 | a shortcut, no prompt; the palette's "shortcuts" edits them |
 | `s` | statistics: live, then Beacon, drawn as sparklines |
 | `n` | names and versions |
 | `r` | battery and seen from Beacon, the tagged or all |
-| `d` | discover a region and adopt what answers |
+| `d` | discover a region (lou-19 and older) and adopt what answers |
 | `h` | the cursor device's history |
 | `e` | edit the device: name, region, notes |
 | Del | forget the device, after a `y` |

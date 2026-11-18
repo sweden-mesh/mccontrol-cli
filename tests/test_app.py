@@ -128,7 +128,7 @@ def test_f7_sends_to_every_node_in_a_region_and_hears_that_regions_devices(tmp_p
     fake = json.dumps({"4AC61A7F": [0, "OK"], "65C1D12C": [0, "OK"], "FD700369": [0, "OK"]})
     text, home = walk(tmp_path, [(DOWN, 0.3), (F[7], 0.5), (b"\r", 0.5), (b"region put se-jkp *", 0.3), (b"\r", 1.5)],
                       env={"MCCONTROL_FAKE_RESULTS": fake})
-    assert "EVERY node in JKG" in text
+    assert "EACH of your devices in JKG" in text
     assert "2 of 2 answered" in text                 # Far is in GOT and is not asked
     assert '"topic": "meshcore/JKG/4AC61A7F/cmd"' in (home / "history" / "4AC61A7F.jsonl").read_text()   # its own, no broadcast
     assert not (home / "history" / "FD700369.jsonl").exists()

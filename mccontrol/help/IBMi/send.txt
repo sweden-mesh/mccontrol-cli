@@ -12,11 +12,12 @@ On a ===> line, "send <device> <command>" does the same in one go, and
 on Work with Devices "send <command>" goes to the tagged rows, or the
 cursor row.
 
-3 on the main menu, or "all <region> <command>", sends to every node in
-a region instead: one signed publish to the region's broadcast topic,
-answered by every node there that holds your key. A command that
-transmits on the air (a "trigger") cannot be sent to a region; the
-firmware refuses it and so does this.
+3 on the main menu, or "all <region> <command>", sends to each of your
+devices in a region instead: each gets its own command, one after another in random order, spaced
+10-90 s apart (5-30 min for a restart); there is no broadcast. A node on
+lou-20 or later gets a sealed command on its own topic, one on lou-19
+or older the old per-node scheme. A command that transmits on the air
+(a "trigger") cannot be sent to a region; send it to one device.
 
 Tagged devices in two different regions cannot be sent to at once: a send
 is to one region.

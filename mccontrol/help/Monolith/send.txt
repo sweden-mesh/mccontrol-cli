@@ -13,11 +13,12 @@ they arrive, and a command it cannot send -- one the node would refuse,
 a caution answered with anything but "y", tags in two regions -- is said
 on a line of its own there instead. Up and Down recall what was sent.
 
-"a" sends to every node in a region instead: it asks for the region,
-then the command, and makes one signed publish to the region's broadcast
-topic, answered by every node there that holds your key. A command that
-transmits on the air (a "trigger") cannot be sent to a region; the
-firmware refuses it and so does this.
+"a" sends to each of your devices in a region instead: it asks for the
+region, then the command, and sends each of your devices there its own command, one after another in random order, spaced
+10-90 s apart (5-30 min for a restart); there is no broadcast. A node on
+lou-20 or later gets a sealed command on its own topic, one on lou-19
+or older the old per-node scheme. A command that transmits on the air
+(a "trigger") cannot be sent to a region; send it to one device.
 
 Tagged devices in two different regions cannot be sent to at once: a send
 is to one region.

@@ -21,7 +21,7 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, t
  Select one of the following:
        1. Work with devices
        2. Send a command
-       3. Send a command to every node in a region  Broker
+       3. Send to each device in a region           Broker
        4. Run a command set                                 mqtt-meshcore.louie.se:8883
        5. Discover devices                          Signing key present
        6. Work with command sets                    Registered  no - select 8
@@ -45,7 +45,7 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, t
 ## The main menu
 
 A number on `===>` opens that screen; `90`, `signoff` or `quit` signs off. `1` Work with devices,
-`2` Send a command, `3` to every node in a region, `4` Run a command set, `5` Discover, `6` Work
+`2` Send a command, `3` Send to each device in a region, `4` Run a command set, `5` Discover, `6` Work
 with command sets, `7` Work with shortcuts, `8` Work with signing key, `9` Change configuration
 (the broker, its port, TLS on or off, credentials, the Beacon URL), `10` Test the broker
 connection, `11` Change directory columns, `12` Display command history, `13` Help contents, `14`
@@ -133,7 +133,7 @@ JKG*   | > get name
        | < 2 of 2 answered
 ```
 
-A region broadcast is a block of its own (`JKG*`); a reply whose signature failed reads
+A send to a region is a block of its own (`JKG*`); a reply whose signature failed reads
 `BAD SIGNATURE <reply>`, one from older firmware `(unsigned)`.
 
 Esc is told from the start of a function key's sequence by a 25 ms wait, whatever `ESCDELAY` the

@@ -20,7 +20,7 @@ came back, or why nothing was sent, scrolls up in the right panel.
 
 View > Command history (h) shows, in the right panel, every device's
 last commands and what came back, newest first: the short id once, then
-"> command" and "< reply"; a region broadcast is a block of its own
+"> command" and "< reply"; a send to a region is a block of its own
 ("JKG*"), a forged reply says BAD SIGNATURE, an unsigned one (unsigned).
 
 See [[keys]] for the keys, [[send]] for sending, [[discover]] for finding

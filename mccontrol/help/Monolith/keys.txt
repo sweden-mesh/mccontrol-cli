@@ -6,11 +6,11 @@ Monolith keys
                the results: the whole result
   Space Ins    tag the device;  "*" invert;  "+" "-" tag or untag a region
   "c"          send a command to the tagged devices, or the cursor device
-  "a"          send a command to every node in a region
+  "a"          send a command to each of your devices in a region
   Alt+1..9     a shortcut, no prompt; the palette's "shortcuts" edits them
   "s"          statistics: live, then Beacon, drawn as sparklines
   "n" "r"      names and versions;  battery and seen from Beacon
-  "d"          discover a region and adopt what answers
+  "d"          discover a region (lou-19 and older) and adopt what answers
   "h" "e" Del  history;  edit;  forget the device
   "k"          the signing key: provision, generate, register
   "S"          setup: the control broker, its port, TLS on or off

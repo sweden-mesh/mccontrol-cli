@@ -6,9 +6,9 @@ Keys on the main screen
   Enter     the command list for the cursor device: see [[commandlist]]
   F3        the cursor device's history as a window
   F4        edit the cursor device: name, region, notes
-  F5        discover: find the repeaters in a region that accept your key
+  F5        discover a region (lou-19 and older): the nodes taking your key
   F6        read the cursor device's region map (sends "region")
-  F7        send a command to every node in a region
+  F7        send a command to each of your devices in a region
   F8        forget the cursor device
   F9 / F10  the menu / quit
   Alt+1..9  a command per key, no dialog: see [[shortcuts]]
@@ -29,7 +29,7 @@ Keys on the main screen
 The menus (F9, or Alt+ the title's first letter) hold the rest:
 
   Devices   discover, edit, forget, sort, names and versions, tag a region
-  Send      to the tagged or cursor device, to all in a region, read
+  Send      to the tagged or cursor device, to each in a region, read
             regions, Command set (run one: see [[sets]]), the shortcuts
   View      Statistics, Last 48 hours, Last 7 days, Refresh Batt/Seen,
             Command history, Command line output

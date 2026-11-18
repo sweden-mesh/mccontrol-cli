@@ -58,7 +58,9 @@ def build_parser():
     c.add_argument("--wait-secs", type=int)
     c.add_argument("--columns", help="the directory's optional columns, comma-separated: reg,sent,batt,seen,ver,result")
     c.add_argument("--companion", metavar="SPEC",
-                   help="your companion radio for the mesh road: tcp:HOST:PORT, serial:PORT[:BAUD] or ble:ADDRESS; '' clears it")
+                   help="your companion radio for the mesh road: tcp:HOST:PORT (the Wi-Fi companion firmware listens "
+                        "on 5000 and serves one client, so each command drops the phone app; share it through a "
+                        "mux), serial:PORT[:BAUD] or ble:ADDRESS; '' clears it")
     c.add_argument("--mesh-after-mins", type=int, metavar="N",
                    help="--via auto takes the mesh when a node has not been heard over MQTT for N minutes (15)")
     a = sub.add_parser("add", help="remember a device")

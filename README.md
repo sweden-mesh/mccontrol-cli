@@ -1,8 +1,8 @@
 # mccontrol-cli
 
 For the people who run MeshCore Observer repeaters: sign a command with a key kept on your
-machine, send it to one repeater, to the ones you tagged, or to every repeater in a region,
-see what came back, and keep a history per device. One backend, three interfaces on it, and a
+machine, send it to one repeater, to the ones you tagged, or to each of your repeaters in an
+area (one command each), see what came back, and keep a history per device. One backend, three interfaces on it, and a
 command line. Python, in a terminal.
 
 What it is not: not a broker, not firmware, and not the browser app. It never changes a
@@ -21,6 +21,32 @@ mccontrol is four repositories:
 - [mccontrol](https://github.com/sweden-mesh/mccontrol): a landing page pointing at the three.
 
 The firmware they talk to is [MeshCore-lou](https://github.com/sweden-mesh/MeshCore-lou).
+
+## What changed with lou-20
+
+From firmware lou-20 the control plane is per node and knows no region (the scheme is called
+mcc3; mccontrol-spec's wire format has the bytes):
+
+- **Per node, sealed.** A command goes to one node only, on `mcc/cmd/<KEY>` (its whole public
+  key), encrypted to that node and signed inside; the answer comes back encrypted to you on a
+  reply topic named only inside the command. The broker sees neither the command nor who sent
+  it: mccontrol signs in with a throwaway key drawn for each session. There is no IATA, no
+  region and no broadcast topic, and every node uses the shared broker.
+- **Discovery from alive.** Each lou-20 node keeps a sealed "alive" message on the broker
+  (`mcc/alive/<KEY>`, every 15 minutes and at boot) that only its owner's key opens.
+  `mccontrol discover` (no region) reads them all and lists the nodes that are yours, wherever
+  they are: online, offline (the broker cleared its alive), or no longer yours (rekeyed).
+  Nothing is sent. `--add` keeps them; a node found this way needs no region.
+- **An area is one command per node.** `send <IATA> ... --all` and `send <county> ... --county`
+  (a node's own `region home`, from its alive) send each of your devices there its own
+  command, in random order, spaced 10-90 s apart (5-30 min for a restart), so the fleet does
+  not restart at one instant. A command that transmits, and the mesh road, go to one node only.
+- **The old scheme stays for lou-19 and older.** A node whose alive opened, or whose version
+  is lou-20 or later, gets mcc3; any other gets the per-node IATA scheme it has always spoken,
+  on its stored region (the device view says which). `mccontrol discover <IATA>` is the old
+  discovery, a signed read to that region, which only lou-19 and older still answer. A lou-19
+  node takes `ota update` over the old scheme, comes back on lou-20, and moves to mcc3 by itself
+  at its first alive. lou-21 removes the old scheme; mccontrol drops it after that.
 
 ## The backend and the API
 
@@ -98,7 +124,8 @@ pip install git+https://github.com/sweden-mesh/mccontrol-cli   # or `pip install
 mccontrol keygen                                  # once; prints the two serial commands
 mccontrol register                                # once per broker; the broker then checks your commands
 mccontrol test                                    # connect, sign in, subscribe, publish, receive
-mccontrol discover JKG --add                      # every node in JKG that accepts your key
+mccontrol discover --add                          # your lou-20 nodes, from their alive messages
+mccontrol discover JKG --add                      # lou-19 and older: the nodes in JKG that accept your key
 mccontrol                                         # the screens: Monolith, or the last --ui asked for
 ```
 
@@ -113,15 +140,18 @@ columns the directory shows.
   never leaving the machine except inside a signature or a passphrase-encrypted backup
   (`mccontrol key export FILE`, `mccontrol key import FILE`; the web app reads the same file). Each interface's key screen shows
   the two serial commands that provision a repeater, on one line, and refuses to replace a key by accident.
-- **Devices.** Name, node id (the first eight hex characters of the public key, as the firmware
-  names it on its topics), region (the IATA code its observers use; a person may run repeaters
-  in several), notes, last sent, last result.
-- **Discovery.** One harmless read signed with your key, broadcast to a region on the control
-  broker. Only a node that verified the signature publishes a result, so every answer is a node
-  of yours; a second read fills in names on firmware that admits `get name`.
-- **Sending.** One signed publish per tagged device to its own topic, or one broadcast to a
-  region; results per device as each interface shows them, kept in history; what each device
-  answered is parsed into its facts (`GET /devices/{ref}/facts`).
+- **Devices.** Name, node id (the first eight hex characters of the public key; the whole key
+  is kept too), for lou-19 and older the region (the IATA code its observers use), notes, last
+  sent, last result. A lou-20 node needs no region.
+- **Discovery.** On lou-20 and later, from the nodes' sealed alive messages: nothing is sent,
+  and only your key opens them. On lou-19 and older, one harmless read signed with your key to a
+  region's broadcast topic; only a node that verified the signature answers, so every answer is
+  a node of yours. A second read fills in names on firmware that admits `get name`.
+- **Sending.** One signed command per device to its own topic, never a broadcast: to the
+  tagged devices one after another, to an area (an IATA region, or a county with `--county`)
+  each of your devices there in random order and spaced; results per device as each interface
+  shows them, kept in history; what each device answered is parsed into its facts
+  (`GET /devices/{ref}/facts`).
 - **Groups.** A named group of devices kept here (`groups.json`), such as `canary` or a site,
   so one action sends the same command to all of them. Each member still gets its own signed
   per-node command on its own topic, through its own region's broker, one after another as a
@@ -145,7 +175,8 @@ columns the directory shows.
 
 ```
 mccontrol send loutest region put se-jkp '*'
-mccontrol send JKG region allowf se-jkp --all
+mccontrol send JKG region allowf se-jkp --all # each of your devices in JKG, one command each
+mccontrol send se-jkp ver --county       # each of your nodes whose region home is se-jkp
 mccontrol send loutest region --dry-run
 mccontrol regions loutest
 mccontrol alt 2 loutest                  # shortcut 2 (ver); mccontrol shortcuts lists and --set changes them
@@ -189,7 +220,8 @@ back over the air, encrypted to you by the node. `mccontrol help mesh` is the sa
 once MQTT has been down 15 minutes (`on` keeps it open, `off` shuts it; set on the console only).
 Check it now with `mccontrol group send <group> get mqtt.cmd.mesh`. Each device needs its whole
 public key (discovery stores it; `PATCH /devices/{ref}` with `key` otherwise). Set your companion
-once: `mccontrol config --companion tcp:HOST:PORT` (or `serial:/dev/ttyACM0`, `ble:ADDRESS`).
+once: `mccontrol config --companion tcp:HOST:PORT` (a Wi-Fi companion, see below; or
+`serial:/dev/ttyACM0`, `ble:ADDRESS`).
 
 **The recipe.**
 
@@ -199,6 +231,9 @@ mccontrol send loutest set mqtt.cmd on mqtt-meshcore.louie.se --via mesh
 mccontrol send loutest reboot --via mesh                     # answers nothing: it restarts first
 mccontrol send loutest ver                                   # a few minutes later: back on MQTT?
 ```
+
+A lou-20 node takes the sealed request (sub-type `0xC2`, a command of at most 57 bytes); one on
+lou-19 the `0xC1` above (59 bytes); mccontrol picks per node as it does on MQTT.
 
 Over the mesh the plane admits what it admits over MQTT and, only there, the repair
 (operator ruling 2026-11-16): `set wifi.ssid <v>`, `set wifi.pwd <v>`, `set mqtt.cmd on [<host>]`.
@@ -231,6 +266,9 @@ put a mux in front (e.g. meshcore-tcp-mux) and give the CLI the mux's shared por
 [mccontrol-bridge](https://github.com/sweden-mesh/mccontrol-bridge).
 
 ## Your own region
+
+This section is for nodes on lou-19 and older. From lou-20 every node uses the shared broker,
+with no region and no IATA in its topics; a region's own broker serves only the old scheme.
 
 Every region can use the shared broker, `mqtt-meshcore.louie.se`. It serves every IATA, keeps
 each region's counts and broadcast caps apart, and is the default: a region needs nothing
@@ -289,6 +327,9 @@ Nothing is handed out or typed; the key is the identity, and that is how the def
 `mqtt-meshcore.louie.se` knows who publishes. A login from the broker's password file sets its username
 and password, and those are used instead.
 
+The lou-20 plane (mcc3) signs in differently: with a throwaway key drawn for each session, so
+the broker never learns which key owns which commands; your key only signs and seals.
+
 ## The configuration is the control brokers
 
 The only thing configured is the control brokers: `broker`, the shared broker (default
@@ -305,7 +346,8 @@ the next login signs its token for the name the broker accepts.
     key.seed            your private seed, mode 600
     config.json         the control brokers, where the key is registered, how long to wait,
                         your companion for the mesh road
-    devices.json        your devices, each with its region
+    devices.json        your devices (a region only for lou-19 and older)
+    ecdh/               the shared secret per node for mcc3, cached (0600)
     groups.json         your device groups: name -> the devices in it
     history/<node>.jsonl
 ```
@@ -313,6 +355,13 @@ the next login signs its token for the name the broker accepts.
 `MCCONTROL_HOME` keeps them elsewhere.
 
 ## The protocol
+
+For lou-20 and later, mcc3: a command is sealed to one node (X25519 from the node's key and yours,
+ChaCha20-Poly1305, signed inside by your key over the node's key, a counter, the expiry and
+the reply id), published on `mcc/cmd/<KEY>`; the result is sealed to you on `mcc/r/<RID>`, a reply
+id drawn per session; the alive message is `mcc/alive/<KEY>`, retained. The bytes and their
+vectors are in mccontrol-spec (`spec/vectors/mcc3-vectors.json`). What follows is the old
+scheme, for lou-19 and older.
 
 The envelope is the one the Observer auto-reply firmware verifies (`src/helpers/MqttControlLogic.h`
 there): the node's topic is named by its whole 64-hex key from firmware ar-11 and by the first

@@ -2,16 +2,17 @@ Devices
 
 A device is a repeater you manage: a name you choose, its node id (the
 first eight hex characters of its public key, which is how the firmware
-names it on the control topics), the region its observers use (the IATA
-code, such as JKG), and notes.
+names it on the control topics), for lou-19 and older the region its
+observers use (the IATA code, such as JKG), and notes.
 
 F4 edits the cursor device. F8 forgets it after a confirmation; its
 history file stays on disk. Devices are added by [[discover]] or by hand
 on the command line (see [[cli]]).
 
-A device with no region cannot be sent to; set one with F4. A region
-belongs to the device, not to the program: you may run repeaters in
-several.
+A node on lou-20 or later needs no region: it is reached by its whole
+key alone, wherever it is. A device on lou-19 or older is reached
+through its region; with none it cannot be sent to, so give it one
+with F4. A region belongs to the device, not to the program.
 
 Back to [[index]].
 
@@ -29,5 +30,5 @@ The whole key. A node on the firmware of 2026-10-08 or later (ar-11)
 listens on a topic named by its whole 64-character key; older firmware
 by the first 8. The tool keeps the whole key on the device when it
 knows it -- a discovery sees it on the node's answer, and "mccontrol add
-<name> <64 hex> <region>" stores it -- and addresses each node by the
+<name> <64 hex>" stores it -- and addresses each node by the
 form its firmware uses. The 8-character id stays the name you see.

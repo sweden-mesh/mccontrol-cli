@@ -20,7 +20,7 @@ KEY_NAMES = ("F1", "F3", "F4", "F5", "F6", "F7", "F9", "F10", "F11", "F12", "F13
 OPTIONS = ("1=Tag/untag", "2=Change", "4=Forget", "5=Display", "6=Statistics", "7=Commands", "8=Facts",
            "9=Send", "10=Regions", "11=Name and version", "1=Read again", "5=Display entry", "1=Select", "1=Add",
            "4=Remove", "9=Run", "1=Show")
-MENU = [("1", "Work with devices"), ("2", "Send a command"), ("3", "Send a command to every node in a region"),
+MENU = [("1", "Work with devices"), ("2", "Send a command"), ("3", "Send to each device in a region"),
         ("4", "Run a command set"), ("5", "Discover devices"), ("6", "Work with command sets"),
         ("7", "Work with shortcuts"), ("8", "Work with signing key"), ("9", "Change configuration"),
         ("10", "Test the broker connection"), ("11", "Change directory columns"),
@@ -457,19 +457,19 @@ class App:
 
     def region_form(self, region=""):
         first = region or ((self.call(self.c.regions) or {}).get("regions") or [""])[0]
-        key, values = form(self.t, "Send a Command to Every Node in a Region",
+        key, values = form(self.t, "Send a Command to Each Device in a Region",
                            [{"label": "Region", "value": first, "width": 8},
                             {"label": "Command", "value": "", "width": 44, "recall": self.recall(None)}],
-                           head=["One signed broadcast; every node in the region that holds your key acts on it."],
+                           head=["One command to each of your devices in the region, one after another."],
                            context="region")
         if key in ENTER and values[0].strip() and values[1].strip():
             self.send(None, values[0].strip().upper(), values[1].strip())
 
     def send(self, devices, region, command):
-        """Sign and send, to the devices (one publish each) or to every node of a region;
+        """Sign and send, to the devices (one publish each) or to each device of a region;
         then the results with each answer's signature."""
         if region:
-            to = f"EVERY node in {region}"
+            to = f"EACH device in {region}"
         else:
             to, why = fmt.target_line(devices)
             if why:
@@ -650,13 +650,13 @@ class App:
             {"label": "Command set", "value": name or sorted(sets)[0], "width": 20},
             {"label": "Value for {arg}", "value": arg, "width": 30},
             {"label": "Devices", "value": names, "width": 44},
-            {"label": "Or every node in region", "value": "", "width": 8}],
+            {"label": "Or each device in region", "value": "", "width": 8}],
             head=["Sets: " + ", ".join(sorted(sets)), "Each step is sent in turn; a refusal or silence stops the rest."], context="runset")
         if key not in ENTER:
             return
         setname, arg, refs, region = (v.strip() for v in values)
         if region:
-            target, to = {"region": region.upper()}, f"EVERY node in {region.upper()}"
+            target, to = {"region": region.upper()}, f"EACH device in {region.upper()}"
         else:
             targets = self.resolve(refs)
             if not targets:
