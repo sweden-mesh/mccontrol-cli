@@ -221,6 +221,15 @@ those slot settings, so a broken Observer feed can be repaired over the mesh.
 The bytes are in mccontrol-spec's [wire format](https://github.com/sweden-mesh/mccontrol-spec/blob/main/docs/wire-format.md)
 and pinned, with the firmware's own worked vectors, in `spec/vectors/vectors.json` (`mesh`).
 
+### A companion over the network (`tcp:HOST:PORT`)
+
+A companion running the **Wi-Fi companion firmware** (`companion_radio_wifi`) listens on TCP port
+5000: `mccontrol config --companion tcp:192.168.1.30:5000`. It serves **one client**: each mesh
+command connects and drops whatever held the port (the phone app, Home Assistant). To share it,
+put a mux in front (e.g. meshcore-tcp-mux) and give the CLI the mux's shared port instead
+(`tcp:HOST:5001`). The web app reaches the same companion through
+[mccontrol-bridge](https://github.com/sweden-mesh/mccontrol-bridge).
+
 ## Your own region
 
 Every region can use the shared broker, `mqtt-meshcore.louie.se`. It serves every IATA, keeps
