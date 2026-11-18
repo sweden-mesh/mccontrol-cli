@@ -94,7 +94,7 @@ def test_discovery_says_why_when_the_regions_cannot_be_resolved():
     app.client, app.right_mode, app.devices, refused = Client(), "history", [], []
     app.ask_region = lambda *a, **k: "JKG"
     app.refuse = lambda why, title="Not done": refused.append(why)
-    app.discover()
+    app.discover(by_region=True)
     assert refused == ["the mccontrol API cannot be reached"]
 
 

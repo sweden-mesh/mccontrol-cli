@@ -153,7 +153,9 @@ def found_row(e):
     """A discovered node: its id, the name or the outcome, and what it is known as here."""
     middle = e.get("name") or e.get("outcome") or ""
     tail = f"= {e['known_as'] or '(unnamed)'}" if e.get("known_as") is not None else ""
-    return f"{e['node']}  {e.get('region', ''):5} {middle[:34]:34} {tail}"
+    if not e.get("region"):                     # found by its alive: no region, wherever it is
+        return f"{e['node']}  {middle[:40]:40} {tail}"
+    return f"{e['node']}  {e['region']:5} {middle[:34]:34} {tail}"
 
 
 def wrap(text, width):

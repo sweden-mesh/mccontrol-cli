@@ -25,9 +25,10 @@ def _home(tmp_path):
     return home
 
 
-def walk(tmp_path, keys, seconds=3.0, env=None, cols=80, rows=24, prepare=None):
+def walk(tmp_path, keys, seconds=3.0, env=None, cols=80, rows=24, prepare=None, pre=""):
     """Start the app in a pty, send `keys` (bytes, delay) pairs, return the stripped text.
-    `prepare(home)` may edit the files before the app starts."""
+    `prepare(home)` may edit the files before the app starts; `pre` is Python the child runs
+    first (a fake put in place)."""
     import fcntl, signal, struct, termios
     home = _home(tmp_path)
     if prepare:
@@ -43,7 +44,7 @@ def walk(tmp_path, keys, seconds=3.0, env=None, cols=80, rows=24, prepare=None):
         os.environ["MCCONTROL_HOME"] = str(home)
         os.environ.update(env or {})
         sys.path.insert(0, os.getcwd())
-        os.execvp(sys.executable, [sys.executable, "-c", "import sys; sys.path.insert(0, %r); from mccontrol import cli; sys.exit(cli.main([\"--ui\", \"MeshcoreCommander\"]))" % os.getcwd()])
+        os.execvp(sys.executable, [sys.executable, "-c", "import sys; sys.path.insert(0, %r)\n%s\nfrom mccontrol import cli; sys.exit(cli.main([\"--ui\", \"MeshcoreCommander\"]))" % (os.getcwd(), pre)])
     out = bytearray()
     # each wait ends when the app is reading its terminal again (tests/ptywalk.py); the
     # delays are only the upper bound
@@ -134,12 +135,30 @@ def test_f7_sends_to_every_node_in_a_region_and_hears_that_regions_devices(tmp_p
     assert not (home / "history" / "FD700369.jsonl").exists()
 
 
-def test_f5_discovers_a_region_and_f7_remembers_everyone_with_names_where_the_fleet_gives_them(tmp_path):
+# The alive scan, faked in the child: a lou-20 node of ours, found with no region, and a known one.
+ALIVE = """from mccontrol import actions
+def _alive(store, **_k):
+    e = lambda node, name, known: {"node": node[:8], "key": node, "name": name, "version": "lou-20", "state": "online",
+                                   "known_as": known, "added": False, "alive": {"state": "online", "region": "se-jkp"}}
+    return [e("4FD099CC" + "A" * 56, "SE-JKG-LOUTEST", None), e("4AC61A7F" + "B" * 56, "SE-JKG-Gisebo", "Gisebo")]
+actions.discover_alive = _alive"""
+
+
+def test_f5_finds_your_nodes_from_alive_with_no_region_asked_and_f7_remembers_them(tmp_path):
+    text, home = walk(tmp_path, [(DOWN, 0.3), (F[5], 1.5), (b"\r", 0.4), (F[7], 1.0), (b"\r", 0.4)], pre=ALIVE)
+    assert "Find the nodes" not in text and "Found: 2" in text            # no region asked
+    assert "Found in" not in text and "se-jkp" not in text               # no region shown
+    devices = {d["node"]: d for d in json.loads((home / "devices.json").read_text())}
+    assert devices["4FD099CC"]["name"] == "SE-JKG-LOUTEST" and devices["4FD099CC"]["region"] == ""
+    assert devices["4FD099CC"]["key"] == "4FD099CC" + "A" * 56 and len(devices) == 4
+
+
+def test_discover_by_region_and_f7_remembers_everyone_with_names_where_the_fleet_gives_them(tmp_path):
     fake = json.dumps({"AB6B9285": [0, "> on"], "AB6B9285|get name": [0, "> SE-JKG-UGORptr"],
                        "4AC61A7F": [0, "> on"], "4AC61A7F|get name": [14, ""],
                        "13B58595": [17, ""], "13B58595|get name": [14, ""]})
     # after the discovery's outcome window (Enter closes it), F7 adds all; its window closes too
-    text, home = walk(tmp_path, [(DOWN, 0.3), (F[5], 0.5), (b"\r", 1.5), (b"\r", 0.4), (F[7], 1.0), (b"\r", 0.4)], env={"MCCONTROL_FAKE_RESULTS": fake})
+    text, home = walk(tmp_path, [(DOWN, 0.3), (F[9], 0.3), (DOWN, 0.2), (b"\r", 0.5), (b"\r", 1.5), (b"\r", 0.4), (F[7], 1.0), (b"\r", 0.4)], env={"MCCONTROL_FAKE_RESULTS": fake})
     assert "Found in JKG: 3" in text
     assert "= Gisebo" in text                               # the known one is marked
     assert "SE-JKG-UGORptr" in text
@@ -149,9 +168,9 @@ def test_f5_discovers_a_region_and_f7_remembers_everyone_with_names_where_the_fl
     assert "2 device(s) remembered" in text
 
 
-def test_f5_again_adds_the_tagged_and_asks_for_a_name(tmp_path):
+def test_by_region_then_f5_adds_the_tagged_and_asks_for_a_name(tmp_path):
     fake = json.dumps({"AB6B9285": [0, "> on"], "AB6B9285|get name": [14, ""]})
-    text, home = walk(tmp_path, [(DOWN, 0.3), (F[5], 0.5), (b"\r", 1.5), (b"\r", 0.4), (INS, 0.3), (F[5], 0.6), (b"UGO\r", 0.8), (b"\r", 0.4)],
+    text, home = walk(tmp_path, [(DOWN, 0.3), (F[9], 0.3), (DOWN, 0.2), (b"\r", 0.5), (b"\r", 1.5), (b"\r", 0.4), (INS, 0.3), (F[5], 0.6), (b"UGO\r", 0.8), (b"\r", 0.4)],
                       env={"MCCONTROL_FAKE_RESULTS": fake})
     assert "Name the device" in text
     assert {d["name"] for d in json.loads((home / "devices.json").read_text())} >= {"UGO"}
@@ -354,7 +373,7 @@ def test_f1_works_when_the_terminal_sends_a_sequence_the_description_lacks(tmp_p
 
 def test_a_wait_is_a_progress_box_with_a_count_and_a_bar_that_fills(tmp_path):
     fake = json.dumps({"4AC61A7F": [0, "> on"], "AAAA1111": [0, "> on"]})
-    text, _ = walk(tmp_path, [(DOWN, 0.3), (F[5], 0.5), (b"\r", 2.0)], env={"MCCONTROL_FAKE_RESULTS": fake})
+    text, _ = walk(tmp_path, [(DOWN, 0.3), (F[9], 0.3), (DOWN, 0.2), (b"\r", 0.5), (b"\r", 2.0)], env={"MCCONTROL_FAKE_RESULTS": fake})
     assert "Discovering" in text and "Asking every node in JKG" in text
     assert "Found 1 new, 1 old" in text                      # AAAA1111 is new, Gisebo is known
     assert "█" in text and "░" in text and "Esc stops waiting" in text   # the bar: written cell by cell as it fills
@@ -460,7 +479,7 @@ def test_a_wait_writes_the_box_once(tmp_path):
                   "import sys; sys.path.insert(0, %r); from mccontrol.cli import main; main([\"--ui\", \"MeshcoreCommander\"])" % os.getcwd()])
     out = bytearray()
     ptywalk.settle(fd, pid, 0.8, out.extend)
-    for k, delay in ((DOWN, 0.3), (F[5], 0.5), (b"\r", 3.0)):
+    for k, delay in ((DOWN, 0.3), (F[9], 0.3), (DOWN, 0.2), (b"\r", 0.5), (b"\r", 3.0)):
         ptywalk.key(fd, pid, k, delay, out.extend)
     os.kill(pid, signal.SIGKILL)
     os.waitpid(pid, 0)

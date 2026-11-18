@@ -111,6 +111,7 @@ from mccontrol import store, transport
 from mccontrol.api import serve
 from mccontrol.apiclient import Client
 from mccontrol.ui import Monolith
+{pre}
 transport.FAKE_WAIT_SECS = {wait}
 _server, url = serve(store.Store({home!r}), transport={script!r})
 sys.exit(Monolith.run(Client(url)))
@@ -234,7 +235,7 @@ class Terminal:
 EXITED = []
 
 
-def walk(tmp_path, keys, cols=80, rows=24, script=None, wait=0.3, prepare=None, settle=1.2, env=None, timed=None):
+def walk(tmp_path, keys, cols=80, rows=24, script=None, wait=0.3, prepare=None, settle=1.2, env=None, timed=None, pre=""):
     """Start Monolith in a pty against a fresh API, send `keys` as `(bytes, delay)` pairs,
     and return every screen it showed (one after the other, as text) with the home
     directory. The last screen is `walk.screen`, and every byte it wrote, colours too,
@@ -251,7 +252,7 @@ def walk(tmp_path, keys, cols=80, rows=24, script=None, wait=0.3, prepare=None, 
                           MCCONTROL_FAKE_BEACON=BEACON_FAKE, LANG="C.UTF-8", LC_ALL="C.UTF-8")
         os.environ.pop("MCCONTROL_FAKE_RESULTS", None)
         os.environ.update(env or {})
-        code = CHILD.format(cwd=os.getcwd(), wait=wait, home=str(home), script=dict(script or SCRIPT))
+        code = CHILD.format(cwd=os.getcwd(), wait=wait, home=str(home), script=dict(script or SCRIPT), pre=pre)
         os.execvp(sys.executable, [sys.executable, "-c", code])
     term, decode, screens = Terminal(cols, rows), codecs.getincrementaldecoder("utf-8")("replace"), []
     walk.raw = b""
@@ -422,8 +423,25 @@ def test_esc_cancels_a_running_job_and_the_bar_says_how(tmp_path):
     assert "cancelled; what landed is kept" in text
 
 
-def test_d_discovers_a_region_and_adopts_what_is_new_with_its_name(tmp_path):
-    text, home = walk(tmp_path, [(b"d", 0.5), (b"\x7f" * 3 + b"JKG", 0.3), (b"\r", 2.0), (b"\r", 1.0)])
+ALIVE = """from mccontrol import actions
+def _alive(store, **_k):
+    key = "4FD099CC" + "A" * 56
+    return [{"node": key[:8], "key": key, "name": "SE-JKG-LOUTEST", "version": "lou-20", "state": "online",
+             "known_as": None, "added": False, "alive": {"state": "online", "region": "se-jkp"}}]
+actions.discover_alive = _alive"""
+
+
+def test_d_finds_your_nodes_from_alive_with_no_region_asked_and_adopts_them(tmp_path):
+    text, home = walk(tmp_path, [(b"d", 2.0), (b"\r", 1.0)], pre=ALIVE)
+    assert "Find the nodes" not in text and "FOUND 1: ADOPT WHICH?" in text and "se-jkp" not in text
+    assert "1 device(s) remembered" in text
+    d = {d["node"]: d for d in json.loads((home / "devices.json").read_text())}["4FD099CC"]
+    assert d["name"] == "SE-JKG-LOUTEST" and d["region"] == "" and d["key"] == "4FD099CC" + "A" * 56
+
+
+def test_the_palette_discovers_a_region_and_adopts_what_is_new_with_its_name(tmp_path):
+    text, home = walk(tmp_path, [(b"\x10", 0.5), (b"discover a region", 0.4), (b"\r", 0.5), (b"\x7f" * 3 + b"JKG", 0.3),
+                                 (b"\r", 2.0), (b"\r", 1.0)])
     assert "FOUND 3: ADOPT WHICH?" in text and "AB6B9285" in text
     assert "1 device(s) remembered" in text
     devices = {d["node"]: d for d in json.loads((home / "devices.json").read_text())}

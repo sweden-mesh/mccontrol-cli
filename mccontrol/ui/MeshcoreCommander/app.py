@@ -67,7 +67,8 @@ class App:
         self.helpwin = HelpWindow(self.topic)
         self.context = "main"                # which help topic F1 opens
         self.menu = MenuBar([
-            Menu("Devices", [MenuItem("Discover", "discover", "F5"), MenuItem("Edit", "edit", "F4"),
+            Menu("Devices", [MenuItem("Discover", "discover", "F5"), MenuItem("Discover by region", "discover:region"),
+                             MenuItem("Edit", "edit", "F4"),
                              MenuItem("Forget", "forget", "F8"), MenuItem("Sort by name", "sort:name"),
                              MenuItem("Sort by region", "sort:region"), MenuItem("Sort by last sent", "sort:last sent"),
                              MenuItem("Sort by version", "sort:version"), MenuItem("Names and versions", "names", "n"),
@@ -525,6 +526,8 @@ class App:
             self.send()
         elif action == "discover":
             self.discover()
+        elif action == "discover:region":
+            self.discover(by_region=True)
         elif action == "edit":
             self.edit()
         elif action == "regions":
@@ -1091,45 +1094,55 @@ class App:
         self.show_results(f"Results: {command[:30]}", lines)
         self.outcome(f"Sent: {command[:40]}", f"{answered} of {asked} answered.", lines)
 
-    def discover(self):
-        """F5: ask a region which nodes accept the key; the found list lands in the right panel.
-        There, Ins tags, F5 adds the tagged (asking for a name where none came back), F7 adds all."""
-        if self.right_mode == "found":
+    def discover(self, by_region=False):
+        """F5: your nodes, wherever they are, from their alive messages (lou-20 and later); no
+        region is asked. The menu's "Discover by region" asks a region which nodes accept the key
+        (lou-19 and older). The found list lands in the right panel; there, Ins tags, F5 adds the
+        tagged (asking for a name where none came back), F7 adds all."""
+        if self.right_mode == "found" and not by_region:
             self.adopt_found(self.view.selected)
             return
-        region = self.ask_region("Find the nodes that accept your key in which region?",
-                                 hint="One IATA code, several with commas, or * for every region you have.")
-        if not region:
-            return
-        try:
-            asked = ", ".join(self.client.resolve_regions(region)["regions"]) or region
-        except ApiError as exc:
-            self.refuse(exc.message)
-            return
+        region = asked = None
+        if by_region:
+            region = self.ask_region("Find the nodes (lou-19 and older) that accept your key in which region?",
+                                     hint="One IATA code, several with commas, or * for every region you have.")
+            if not region:
+                return
+            try:
+                asked = ", ".join(self.client.resolve_regions(region)["regions"]) or region
+            except ApiError as exc:
+                self.refuse(exc.message)
+                return
         known = {d["node"] for d in self.devices}
 
         def describe(job):
             nodes = job["progress"]["heard"]
+            if not region:
+                return f"{len(nodes)} of your nodes alive"
             new = sum(1 for n in nodes if n not in known)
             return f"Found {new} new, {len(nodes) - new} old"
+        what = (f"Asking every node in {asked} with one signed read per region" if region
+                else "Reading the alive messages of your nodes, wherever they are")
         try:
-            job, _box = self.job("Discovering", f"Asking every node in {asked} with one signed read per region",
-                                 describe, self.client.start_discover, region)
+            job, _box = self.job("Discovering", what, describe, self.client.start_discover, region)
         except ApiError as exc:
             self.refuse(exc.message)
             return
         found = job["result"]["found"]
         self.found = found
+        title = f"Found in {asked}" if region else "Found"
         lines = [self.found_line(e) for e in found]
-        self.show_results(f"Found in {asked}: {len(found)}", lines or ["(no node answered)"])
+        self.show_results(f"{title}: {len(found)}", lines or ["(no node answered)"])
         self.right_mode = "found" if found else "results"
         self.activate(self.right)
         if found:
-            self.outcome(f"Found in {asked}", f"{len(found)} answered.",
+            self.outcome(title, f"{len(found)} answered.",
                          lines + ["", "In the right panel: Ins tags, F5 adds the tagged, F7 adds all, Esc returns."])
+        elif region:
+            self.refuse("No node answered: none there holds your key, or its control plane is off.", title=title)
         else:
-            self.refuse("No node answered: none there holds your key, or its control plane is off.",
-                        title=f"Found in {asked}")
+            self.refuse("No alive message opened with your key: no node of yours (lou-20 or later) is on the plane now.",
+                        title=title)
 
     @staticmethod
     def found_line(e):
@@ -1150,7 +1163,8 @@ class App:
             name = e["name"]
             if not name and ask:
                 f = Field("Name", "", width=30)
-                d = Dialog("Name the device", fields=[f], body=[f"{e['node']} in {e['region']} ({e['outcome'][:30]})",
+                where = f" in {e['region']}" if e["region"] else ""
+                d = Dialog("Name the device", fields=[f], body=[f"{e['node']}{where} ({e['outcome'][:30]})",
                                                                 "Leave empty to name it later."], width=56)
                 if d.run(self.screen, self.draw) is None:
                     continue

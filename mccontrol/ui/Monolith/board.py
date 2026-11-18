@@ -375,7 +375,7 @@ class Board:
             role = "cursor" if n == self.cursor else ("bright" if d["tagged"] else ("accent" if d["stale"] else "base"))
             self.put(y + 1 + i, x, f"{mark} {d['row']}"[:w].ljust(w), role)
         if not self.devices:
-            self.put(y + 2, x, "No devices: d discovers a region's nodes."[:w], "dim")
+            self.put(y + 2, x, "No devices: d discovers your nodes."[:w], "dim")
 
     def draw_device(self, rect):
         d = self.device
@@ -993,8 +993,8 @@ class Board:
                 raise Cancel(why)
             return {"tagged": True}, f"{len(tagged)} tagged in {tagged[0]['region']}"
         if not self.device:
-            self.toast("no device: d discovers a region's nodes", "alert")
-            raise Cancel("no device: d discovers a region's nodes")
+            self.toast("no device: d discovers your nodes", "alert")
+            raise Cancel("no device: d discovers your nodes")
         d = self.device
         return {"devices": [d["node"]]}, d["name"] or d["node"]
 
@@ -1004,7 +1004,8 @@ class Board:
         """The interface's own entries for the palette: `(label, (verb, arg))`."""
         out = [("send a command", ("send", None)), ("send to each of your devices in a region", ("region", None)),
                ("run a command set", ("runset", None)), ("save a command set", ("saveset", None)),
-               ("remove a command set", ("removeset", None)), ("discover a region", ("discover", None)),
+               ("remove a command set", ("removeset", None)), ("discover your nodes", ("discover", None)),
+               ("discover a region (lou-19 and older)", ("discover", "region")),
                ("names and versions", ("names", None)), ("fleet refresh: battery and seen", ("fleet", None)),
                ("statistics 24 h", ("stats", "24h")), ("statistics 48 h", ("stats", "48h")),
                ("statistics 7 d", ("stats", "168h")), ("history of the device", ("history", None)),
@@ -1143,15 +1144,21 @@ class Board:
         self.client.remove_set(name)
         self.toast(f"removed {name}")
 
-    def v_discover(self, _arg):
-        region = self.ask_region("Find the nodes that accept your key in which region?",
-                                 "One IATA code, several with commas, or * for every region you have.")
-        job = self.wait(f"discover {region}", self.client.start_discover(region))
+    def v_discover(self, arg):
+        """`d`: your nodes, wherever they are, from their alive messages (lou-20 and later); no
+        region is asked. The palette's "discover a region" asks one (lou-19 and older)."""
+        region = None
+        if arg == "region":
+            region = self.ask_region("Find the nodes (lou-19 and older) that accept your key in which region?",
+                                     "One IATA code, several with commas, or * for every region you have.")
+        job = self.wait(f"discover {region}" if region else "discover your nodes", self.client.start_discover(region))
         found = (job.get("result") or {}).get("found") or []
         if job["status"] != "done":
             return
         if not found:
-            self.toast("no node answered: none there holds your key, or its control plane is off", "alert")
+            self.toast("no node answered: none there holds your key, or its control plane is off" if region else
+                       "no alive message opened with your key: no node of yours (lou-20 or later) is on the plane now",
+                       "alert")
             return
         new = [e for e in found if e["known_as"] is None]          # "" is a known device without a name
         if not new:
@@ -1167,7 +1174,8 @@ class Board:
             name = e["name"]
             if not name:
                 try:
-                    name = self.ask("Name the device", "name", body=[f"{e['node']} in {e['region']}; empty names it later."])
+                    where = f" in {e['region']}" if e["region"] else ""
+                    name = self.ask("Name the device", "name", body=[f"{e['node']}{where}; empty names it later."])
                 except Cancel:
                     continue
             self.client.adopt(e["node"], e["region"], key=e["key"], name=name)

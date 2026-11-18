@@ -144,7 +144,7 @@ left says how the last thing came out.
 | `s` | statistics: live, then Beacon, drawn as sparklines |
 | `n` | names and versions |
 | `r` | battery and seen from Beacon, the tagged or all |
-| `d` | discover a region (lou-19 and older) and adopt what answers |
+| `d` | discover your nodes from their alive messages and adopt them (the palette's "discover a region" for lou-19 and older) |
 | `h` | the cursor device's history |
 | `e` | edit the device: name, region, notes |
 | Del | forget the device, after a `y` |

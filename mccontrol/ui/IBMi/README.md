@@ -79,7 +79,7 @@ Work with Command Sets, F10 on Change Configuration saves and tests.
 
 ## Commands on `===>`
 
-`send <device> <command>`, `all <region> <command>`, `discover <region>`, `run <set> [arg]`,
+`send <device> <command>`, `all <region> <command>`, `discover [<region>]`, `run <set> [arg]`,
 `alt <n>`, `names`, `fleet`, `tag <region>`, `untag`, `invert`, `sort <by>`, `devices`, `cmd`,
 `history`, `help [topic]`. On Work with Devices they act on the tagged rows or the cursor row,
 and `stats [24h|48h|168h]` is added.

@@ -364,11 +364,25 @@ def test_11_reads_names_and_versions_and_f7_refreshes_the_tagged_from_beacon(api
     assert devs["4AC61A7F"]["fleet"]["battery_mv"] == 4261 and "fleet" not in devs["FD700369"]   # the tagged one only
 
 
-def test_5_discovers_a_region_1_adds_one_with_a_name_and_f6_adds_the_rest(api):
+def test_5_finds_your_nodes_from_alive_with_no_region_asked_or_shown(api, monkeypatch):
+    from mccontrol import actions
+    _server, _url, store = api
+    key = "4FD099CC" + "A" * 56
+    monkeypatch.setattr(actions, "discover_alive", lambda _store, **_k: [
+        {"node": key[:8], "key": key, "name": "SE-JKG-LOUTEST", "version": "lou-20", "state": "online",
+         "known_as": None, "added": False, "alive": {"state": "online", "region": "se-jkp"}}])
+    text = walk(api, [(b"5\r", 1.5), (F[6], 0.8)])
+    assert "Discover Devices" not in text and "Found: 1" in text and "Found in" not in text
+    assert "Reg " not in text and "se-jkp" not in text
+    assert re.search(r"4FD099CC\s+SE-JKG-LOUTEST", text) and "1 device(s) remembered." in text
+    d = store.device("4FD099CC")
+    assert d["name"] == "SE-JKG-LOUTEST" and d["key"] == key and d["region"] == ""
+
+
+def test_discover_jkg_asks_a_region_1_adds_one_with_a_name_and_f6_adds_the_rest(api):
     _server, _url, store = api
     api[0].ctx.script["13B58595"] = [17, ""]
-    text = walk(api, [(b"5\r", 0.6), (b"\r", 1.5), (b"1\r", 0.6), (b"Torpa\r", 0.8), (F[6], 0.8)])
-    assert "Discover Devices" in text and "* for every region you have" in text
+    text = walk(api, [(b"discover JKG\r", 1.5), (b"1\r", 0.6), (b"Torpa\r", 0.8), (F[6], 0.8)])
     assert "Work with Found Devices" in text and "Found in JKG: 4" in text
     assert re.search(r"4AC61A7F\s+JKG\s+SE-JKG-Gisebo\s+= Gisebo", text)
     assert "= (unnamed)" in text                                  # 65C1D12C is known, without a name

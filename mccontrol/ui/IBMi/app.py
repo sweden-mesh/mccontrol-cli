@@ -594,27 +594,24 @@ class App:
     # -- the long verbs ------------------------------------------------------------------
 
     def discover(self, regions):
-        """Ask one or more regions (`JKG, GOT`, `*` for all of yours) which nodes accept
-        your key; then Work with Found Devices, where 1 adds one and F6 adds all."""
-        if regions is None:
-            first = ((self.call(self.c.regions) or {}).get("regions") or [""])[0]
-            key, values = form(self.t, "Discover Devices", [{"label": "Region(s)", "value": first, "width": 30}],
-                               head=["One signed read per region; only a node that verified it answers.",
-                                     "One IATA code, several with commas, or * for every region you have."], context="discover")
-            if key not in ENTER or not values[0].strip():
-                return
-            regions = values[0].strip()
+        """Without regions (5, F6, `discover`): your nodes, wherever they are, from their
+        alive messages (lou-20 and later); no region is asked. `discover JKG, GOT` (`*` for all
+        of yours) asks those regions which nodes accept your key (lou-19 and older). Then Work
+        with Found Devices, where 1 adds one and F6 adds all."""
         job = self.job(self.c.start_discover, regions)
         if job is None:
             return
         found = (job.get("result") or {}).get("found", [])
         asked = ", ".join((job.get("result") or {}).get("regions", [])) or regions
         if not found:
-            self.t.message = "No node answered: none there holds your key, or its control plane is off."
+            self.t.message = ("No node answered: none there holds your key, or its control plane is off." if regions else
+                              "No alive message opened with your key: no node of yours (lou-20 or later) is on the plane now.")
             return
         lst = OptList(self.t, "Work with Found Devices", fmt.fkeys(["F1=Help", "F3=Exit", "F6=Add all", "F12=Cancel"]),
-                      legend=["1=Add"], header=f"{'Node':8}  {'Reg':5} {'Name or answer':34} Known as",
-                      head=[f"Found in {asked}: {len(found)}"], prompt=None, context="found")
+                      legend=["1=Add"], header=f"{'Node':8}  {'Reg':5} {'Name or answer':34} Known as" if regions
+                      else f"{'Node':8}  {'Name or answer':40} Known as",
+                      head=[f"Found in {asked}: {len(found)}" if regions else f"Found: {len(found)}"], prompt=None,
+                      context="found")
         while True:
             lst.set_rows([(fmt.found_row(e), "normal" if e.get("known_as") is not None else "bright", e) for e in found])
             key, picks, _c = lst.run()
@@ -629,7 +626,8 @@ class App:
                 name = e.get("name") or ""
                 if not name and key in ENTER:
                     k, values = form(self.t, "Name the Device", [{"label": "Name", "value": "", "width": 30}], context="found",
-                                     head=[f"{e['node']} in {e['region']} ({(e.get('outcome') or '')[:30]})", "Leave it empty to name it later."])
+                                     head=[f"{e['node']}{' in ' + e['region'] if e.get('region') else ''} ({(e.get('outcome') or '')[:30]})",
+                                           "Leave it empty to name it later."])
                     if values is None:
                         continue
                     name = values[0].strip()

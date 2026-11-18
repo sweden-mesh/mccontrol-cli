@@ -92,7 +92,7 @@ window, closed with Enter.
 | Enter | the command list for the cursor device, by group, type to filter; a command's parameter is asked for as radio buttons, checkboxes or a text field with examples, and the reply opens when it arrives. Commands the device's firmware does not admit are grey and skipped (`mccontrol/firmware.py` knows what each build admits; an unknown version counts as the oldest) |
 | F3 | the cursor device's history as a window; on the right panel, Enter opens a reply |
 | F4 | edit the device: name, region, notes |
-| F5 | discover (lou-19 and older): the repeaters in a region that accept your key (`JKG, GOT` for several, `*` for every region you have); on the found list, F5 adds the tagged and F7 adds all |
+| F5 | discover your nodes, wherever they are, from their alive messages (the Devices menu's Discover by region asks a region instead, for lou-19 and older: `JKG, GOT` for several, `*` for every region you have); on the found list, F5 adds the tagged and F7 adds all |
 | F6 | read the cursor device's region map |
 | F7 | send a command to each of your devices in a region, one command each |
 | F8 | forget the cursor device |
