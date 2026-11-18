@@ -73,6 +73,11 @@ UTF8_FROM = 17
 # The first revision whose `rc` image takes a signed command over the mesh (OTM-1).
 MESH_FROM = 19
 
+# The first revision that speaks mcc3, the plane keyed by the node and sealed to the owner
+# (IATA-2): `mcc/cmd/<KEY>`, alive messages, the mesh road's 0xC2. lou-20 also keeps the old
+# per-node IATA scheme; lou-19 and older speak only that.
+MCC3_FROM = 20
+
 
 def revision(version_text):
     """The revision in a version string, or None: `-lou-N-` first, then `-ar-N-`.
@@ -191,6 +196,12 @@ def speaks_v2(version_text):
     """Does a node on `version_text` open the encrypted v2 envelope? Unknown: no."""
     rev = revision(version_text)
     return rev is not None and rev >= V2_FROM
+
+
+def speaks_mcc3(version_text):
+    """Does a node on `version_text` take mcc3 (lou-20 and later)? Unknown: no."""
+    rev = revision(version_text)
+    return rev is not None and rev >= MCC3_FROM
 
 
 def admits_utf8(version_text):

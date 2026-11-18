@@ -224,7 +224,7 @@ def open_companion(spec):
 TICK_SECS = 0.2
 
 
-async def _send(companion, key_hex, name, body, counter, command, wait_secs, progress, node):
+async def _send(companion, key_hex, name, body, counter, command, wait_secs, progress, node, parse=None):
     info = {}
     await companion.open()
     try:
@@ -250,7 +250,8 @@ async def _send(companion, key_hex, name, body, counter, command, wait_secs, pro
             if elapsed >= wait:
                 break
             data = await companion.response(sent["tag"], min(TICK_SECS, wait - elapsed))
-        result = parse_response(data, node, command, counter) if data is not None else None
+        result = (None if data is None else
+                  parse(data) if parse else parse_response(data, node, command, counter))
         return result, info
     finally:
         await companion.close()
@@ -271,3 +272,57 @@ def send(spec, seed_hex, region, key_hex, command, mesh_only=False, name="", cou
     companion = open_companion(spec)
     result, info = asyncio.run(_send(companion, key, name, body, counter, command, wait_secs, progress, key[:8]))
     return topic_, body, result, info
+
+
+# -- mcc3 on the mesh (lou-20 and later): ANON_REQ sub-type 0xC2 ----------------------------
+
+MCC3_MAX_COMMAND = 57       # mcc3.MESH_MAX_COMMAND: the 58-byte field always ends in a zero
+
+
+def check_command_mcc3(command):
+    size = len((command or "").encode("utf-8"))
+    if not 1 <= size <= MCC3_MAX_COMMAND:
+        raise envelope.EnvelopeError(f"over the mesh a command to lou-20 and later is 1..{MCC3_MAX_COMMAND} "
+                                     f"bytes; this one is {size}")
+
+
+def build_mcc3(seed_hex, key_hex, counter, command, keys=None, ttl_secs=envelope.DEFAULT_TTL_SECS, now=None):
+    """The 132 bytes the app gives `CMD_SEND_ANON_REQ` after the node's key (the companion
+    writes the 4-byte tag in front): sub-type 0xC2, sealed under K_mesh, signed for road 0x01."""
+    from . import mcc3
+    check_command_mcc3(command)
+    now = int(time.time() if now is None else now)
+    if not 0 < ttl_secs <= envelope.MAX_FUTURE_SECS:
+        raise envelope.EnvelopeError(f"ttl is 1..{envelope.MAX_FUTURE_SECS} seconds")
+    try:
+        request_ = mcc3.seal_mesh_request(seed_hex, key_hex, counter, now + ttl_secs, command, keys=keys)
+    except mcc3.Mcc3Error as exc:
+        raise envelope.EnvelopeError(str(exc)) from None
+    return request_[4:]
+
+
+def parse_mcc3(keys, data, node=None, command="", counter=None):
+    """A sealed 0xC2 response as the companion hands it (after the tag) as a MeshResult, or
+    None when it does not open under K_cmd or answers another counter."""
+    from . import mcc3
+    try:
+        r = mcc3.open_mesh_response(keys, bytes(4) + bytes(data or b""))
+    except mcc3.Refused:
+        return None
+    if counter is not None and r["counter"] != counter:
+        return None
+    return MeshResult(node, r["counter"], r["code"], command, r["reply"],
+                      r["clock"] if r["clock"] >= CLOCK_SET_FROM else None)
+
+
+def send_mcc3(spec, seed_hex, key_hex, command, counter, keys, name="", ttl_secs=envelope.DEFAULT_TTL_SECS,
+              wait_secs=30.0, progress=None, now=None):
+    """`send` for a lou-20 node: `(body, result_or_None, info)`. The 57-byte check comes
+    before any signing or connecting; the companion cannot read the request or the answer."""
+    key = envelope.node_key(key_hex)
+    body = build_mcc3(seed_hex, key, counter, command, keys=keys, ttl_secs=ttl_secs, now=now)
+    companion = open_companion(spec)
+    node = key[:envelope.NODE_HEX_LEN]
+    result, info = asyncio.run(_send(companion, key, name, body, counter, command, wait_secs, progress, node,
+                                     parse=lambda data: parse_mcc3(keys, data, node, command, counter)))
+    return body, result, info

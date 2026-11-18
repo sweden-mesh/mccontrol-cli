@@ -6,6 +6,8 @@
         devices.json      the devices you manage: name, node hex, notes, last seen
         groups.json       named groups of devices (`canary`, a site): name -> node ids
         history/<node>.jsonl   every command sent to that device and what came back
+        ecdh/<key id>.json     mcc3: the X25519 secret shared with each node key seen, per
+                          command key, mode 0600 like the seed (it opens that node's messages)
 
 Override the directory with MCCONTROL_HOME. Nothing here is ever sent anywhere except the
 signed envelope, and the seed is never part of it.
@@ -17,7 +19,7 @@ import os
 import pathlib
 import stat
 
-from . import envelope
+from . import envelope, mcc3
 
 # The configuration is the control brokers and nothing else: the ones that take the signed
 # commands and carry the results back. A region is a property of each device, since one
@@ -335,9 +337,13 @@ class Store:
         except envelope.NodeIdError as exc:
             raise StoreError(str(exc)) from None
         name = name.strip()          # empty is allowed: the id stands in until you name it
-        region = valid_region(region)
-        if not region:
-            raise StoreError("a device needs its region: the IATA code its observers use, e.g. JKG")
+        if (region or "").strip() in ("", "-") and key:
+            region = ""              # mcc3 (lou-20 and later) is keyed by the node alone: no IATA
+        else:
+            region = valid_region(region)
+            if not region:
+                raise StoreError("a device needs its region (the IATA code its observers use, e.g. JKG), "
+                                 "or its whole public key for lou-20 and later, which need none")
         devices = self.devices()
         if name and any(d["name"].lower() == name.lower() for d in devices):
             raise StoreError(f"a device named {name!r} already exists")
@@ -364,6 +370,47 @@ class Store:
         groups = self._read_json(self.root / "groups.json", {})
         if any(node in members for members in groups.values()):      # a forgotten device leaves its groups
             self._write_json(self.root / "groups.json", {n: [m for m in ms if m != node] for n, ms in groups.items()})
+
+    def next_counter(self, node, now=None):
+        """The mcc3 counter for the node's next command, stored before it is sent:
+        `max(now, highest known + 1)`, the highest from what was sent and from its alive."""
+        import time
+        d = next((e for e in self.devices() if e["node"] == node), None)
+        if d is None:
+            raise StoreError("no such device")
+        known = max(int(d.get("counter") or 0), int((d.get("alive") or {}).get("last_counter") or 0))
+        counter = max(int(time.time() if now is None else now), known + 1)
+        self.update_device(node, counter=counter)
+        return counter
+
+    # -- mcc3: the shared secret with each node (IATA-2) --------------------------------
+
+    def _ecdh_path(self):
+        return self.root / "ecdh" / f"{self.public_key()[:16]}.json"
+
+    def ecdh_cache(self):
+        """`{node KEY: S hex}` for the current command key: every node key an alive scan has
+        seen, ours or not (a node rekeyed to us later opens with the same S)."""
+        return dict(self._read_json(self._ecdh_path(), {}))
+
+    def save_ecdh_cache(self, cache):
+        path = self._ecdh_path()
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(path.parent, 0o700)
+        self._write_private(path, json.dumps(cache, indent=0, sort_keys=True) + "\n")
+
+    def owner_keys(self, key_hex, cache=None):
+        """K_cmd, K_mesh and K_alive for the node with `key_hex`, from the cached S when there
+        is one; a new S is computed and stored."""
+        key = envelope.node_key(key_hex or "")
+        own = cache if cache is not None else self.ecdh_cache()
+        secret = own.get(key)
+        if secret is None:
+            secret = mcc3.shared_secret(self.seed(), key).hex()
+            own[key] = secret
+            if cache is None:
+                self.save_ecdh_cache(own)
+        return mcc3.derive(bytes.fromhex(secret), key)
 
     # -- groups (RM-4) -----------------------------------------------------------------
     # A group is a name and the node ids of its members, kept here and nowhere else: a send
