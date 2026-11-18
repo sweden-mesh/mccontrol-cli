@@ -1,22 +1,22 @@
-Your own region
+Your own command server
 
 This is for nodes on lou-19 and older. From lou-20 every node uses the
-shared broker, with no region and no IATA in its topics.
+shared command server, with no region and no IATA in its topics.
 
-Every region can use the shared broker, mqtt-meshcore.louie.se. It serves
+Every region can use the shared command server, mqtt-meshcore.louie.se. It serves
 every IATA: keys register there, commands fan out there, and each
 region's nodes are told apart by the IATA in their topics. A region can
-also run its own broker (mcbroker's DEPLOY.md is the guide). Either way
+also run its own command server (mcbroker's DEPLOY.md is the guide). Either way
 it is the same tool and the same key.
 
 Two roles
 
-  The region operator runs the region's broker, or chooses to use the
-  shared one. On their own broker they keep the host, the certificate,
+  The region operator runs the region's own command server, or chooses to
+  use the shared one. On their own command server they keep the host, the certificate,
   the reader accounts for maps and Beacon, and the revoked and approved
-  key files. They tell the region the broker's host name.
+  key files. They tell the region the command server's host name.
 
-  A repeater owner makes a key, registers it with the region's broker,
+  A repeater owner makes a key, registers it with the region's command server,
   provisions their own repeaters over serial and adds them here. An
   owner commands only the repeaters that hold their public key; no
   operator can command someone else's repeater.
@@ -25,31 +25,31 @@ Two roles
 
   mccontrol keygen
 
-2. Point the region at its broker. Skip this for the shared broker,
+2. Point the region at its own command server. Skip this for the shared one,
 which is the default:
 
   mccontrol config --region-broker VGR=mqtt.meshcore-vgr.se
 
-A region with no entry uses the shared broker ("mccontrol config
---broker" changes that one). "VGR=" with no host moves the region back
-to the shared broker. Your devices keep their region either way, so
+A region with no entry uses the shared command server ("mccontrol
+config --broker" changes that one). "VGR=" with no host moves the region
+back to the shared one. Your devices keep their region either way, so
 moving a region loses no device.
 
-3. Register your key with each broker in use, once per broker:
+3. Register your key with each command server in use, once per server:
 
-  mccontrol register              (every broker in use)
-  mccontrol register --region VGR (that region's broker only)
+  mccontrol register              (every command server in use)
+  mccontrol register --region VGR (that region's own server only)
   mccontrol test --region VGR     (connect, sign in, publish, receive)
 
 4. Provision each repeater over its serial console:
 
   set mqtt.cmd.pubkey <your 64-hex public key>   ("mccontrol key")
 
-then the command slot. For the shared broker:
+then the command slot. For the shared command server:
 
   set mqtt.cmd on
 
-For a region's own broker, once firmware lou-18 ships:
+For your own command server, once firmware lou-18 ships:
 
   set mqtt.cmd on mqtt.meshcore-vgr.se
 
@@ -70,10 +70,10 @@ match the region you give the device here.
   mccontrol discover VGR --add    (every node in VGR that holds your key)
   mccontrol add <name> <node> VGR (or one by hand)
 
-Each device shows the broker it is reached through. Discovery and
-broadcasts go to the region's broker and hear only that region's
-topics, so several regions can share one broker.
+Each device shows the command server it is reached through. Discovery
+and broadcasts go to the region's command server and hear only that
+region's topics, so several regions can share one server.
 
-See [[broker]] for the brokers and [[signing]] for the key.
+See [[broker]] for the command servers and [[signing]] for the key.
 
 Back to [[index]].

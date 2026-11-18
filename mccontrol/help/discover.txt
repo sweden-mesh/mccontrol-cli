@@ -1,26 +1,31 @@
 Discovering repeaters
 
 Nodes on lou-20 or later are found from their alive messages: each keeps
-a sealed message on the broker that only its owner's key opens.
-"mccontrol discover" (no region) reads them all, sends nothing, and lists
+a sealed message on the broker that only its owner's key opens. A
+discovery reads them all, sends nothing, asks for no region, and lists
 the nodes that are yours wherever they are: online, offline, or no longer
-yours (given another key). "--add" keeps them; they need no region.
+yours (given another key). Found nodes are added with no region; they
+need none. "mccontrol discover" (no region) does this on the command
+line, "--add" keeps what it finds; each interface's discover key does the
+same ([[keys]]).
 
-Nodes on lou-19 or older are found by region. A discovery asks for a
-region, then sends one harmless read ("get
-autoreply"), signed with your key, to that region's broadcast topic, and
-listens for answers. Only a node that verified your signature publishes
-a result, so every node in the list is yours; a node with another key,
-or none, says nothing. Several regions go in one run -- "JKG, GOT" --
-and "*" asks every region your directory spans, one signed read per
-region.
+Nodes on lou-19 or older publish no alive message and are found by
+region, the only place a region is still asked for: "mccontrol discover
+<region>", or the interfaces' "discover a region (lou-19 and older)". It
+sends one harmless read ("get autoreply"), signed with your key, to that
+region's broadcast topic, and listens for answers. Only a node that
+verified your signature publishes a result, so every node in the list is
+yours; a node with another key, or none, says nothing. Several regions go
+in one run -- "JKG, GOT" -- and "*" asks every region your directory
+spans, one signed read per region.
 
 The found nodes are listed with what each answered and "= name" where it
 is already in your directory. Any of them, or all, are added to the
 directory; a node the fleet gave no name is asked for one, or added
-unnamed, to be named later.
+unnamed, to be named later. A node found by its alive gives its own name.
 
-A second read, "get name", fills in names on firmware that admits it;
-older firmware refuses it and those nodes stay unnamed.
+On lou-19 and older, a second read, "get name", fills in names on
+firmware that admits it; older firmware refuses it and those nodes stay
+unnamed.
 
 Related: [[devices]], [[signing]].

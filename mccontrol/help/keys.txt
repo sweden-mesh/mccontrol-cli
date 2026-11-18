@@ -6,4 +6,10 @@ the last one asked for, or Monolith when none has been or the one kept
 is gone. Every verb is also on the command line, one subcommand each;
 see [[cli]].
 
+Discovery asks for no region: it reads the alive messages of your
+lou-20 and later nodes, wherever they are, and each interface's help
+names the key that starts it. Only lou-19 and older nodes are found by
+region, through a discovery of their own ("discover <region>" on the
+command line). See [[discover]].
+
 Back to [[index]].

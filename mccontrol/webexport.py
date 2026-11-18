@@ -98,6 +98,7 @@ def data():
             "unknown": "unknown-{code}",
             "codes": {str(k): v for k, v in sorted(envelope.RESULT_CODES.items())},
             "help": {str(k): v for k, v in sorted(envelope.RESULT_HELP.items())},
+            "help_sv": {str(k): v for k, v in sorted(envelope.RESULT_HELP_SV.items())},
         },
         "facts.json": {
             "_source": _source("mccontrol/facts.py"),
