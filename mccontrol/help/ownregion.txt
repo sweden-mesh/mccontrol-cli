@@ -49,11 +49,11 @@ then the command slot. For the shared command server:
 
   set mqtt.cmd on
 
-For your own command server, once firmware lou-18 ships:
+For your own command server (firmware lou-18 and later):
 
   set mqtt.cmd on mqtt.meshcore-vgr.se
 
-Until then, use a custom slot (here slot 3; any free one from 2 to 6):
+On lou-17 and older, use a custom slot (here slot 3; any free one from 2 to 6):
 
   set mqtt3.preset custom
   set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883

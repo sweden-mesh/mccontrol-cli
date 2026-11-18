@@ -296,8 +296,8 @@ that hold their public key; the broker stops forgeries and floods, it does not h
    `mccontrol test --region VGR` connects, signs in, publishes and receives there.
 4. **Provision each repeater** over serial: `set mqtt.cmd.pubkey <your 64-hex public key>`, then
    the command slot. For the shared broker that is `set mqtt.cmd on`. For a region's own broker,
-   once firmware lou-18 ships, `set mqtt.cmd on mqtt.meshcore-vgr.se`; until then a custom slot
-   (any free one from 2 to 6):
+   `set mqtt.cmd on mqtt.meshcore-vgr.se` (firmware lou-18 and later); on lou-17 and older a custom
+   slot (any free one from 2 to 6):
 
    ```
    set mqtt3.preset custom
