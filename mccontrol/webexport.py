@@ -7,7 +7,8 @@ capabilities, brokers, the areas (county, scope, IATA) and the protocol's consta
 inputs and the exact output this package gives for them (envelopes v1 and v2, results r1, r2
 and r3, the broker token, the registration line, the checks the screens make before
 signing, and the mesh road's request and response bytes with the wire-format document's own
-worked vectors), so the JavaScript ports can prove byte-identical behaviour.
+worked vectors), and `vectors/mcc3-vectors.json` (mcc3, lou-20: commands, results, the mesh road, alive
+and the refusals), so the JavaScript ports and the firmware can prove byte-identical behaviour.
 `tests/test_webexport.py` fails when the vendored copy of the spec (`spec/`, pinned by tag with
 `scripts/spec_sync.py`) differs from what this writes: a change here ships as a new spec tag.
 
@@ -18,7 +19,7 @@ import hashlib
 import json
 import pathlib
 
-from . import actions, areas, commands, denylist, envelope, facts, firmware, helptext, mesh, store, token
+from . import actions, areas, commands, denylist, envelope, facts, firmware, helptext, mcc3, mesh, store, token
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPEC = ROOT.parent / "mccontrol-spec"         # the default --out: a spec clone beside this one
@@ -505,6 +506,233 @@ def _cmd(text):
     return next(c for c in commands.TABLE if c.text == text)
 
 
+# -- mcc3 vectors (lou-20): the design note's seeds, so the firmware's suite shares them -----
+
+MCC3_SEEDS = {
+    "command": bytes(range(0x11, 0x31)).hex().upper(),       # the owner's command key
+    "node": bytes(range(0xA0, 0xC0)).hex().upper(),          # the node
+    "other_node": bytes(range(0xC0, 0xE0)).hex().upper(),    # a second node of the same owner
+    "other_owner": bytes(range(0x31, 0x51)).hex().upper(),   # someone else's command key
+}
+MCC3_RID = bytes(range(16))
+MCC3_EXPIRY = 1795000000
+
+
+def _nonce(first):
+    return bytes(range(first, first + 12))
+
+
+def _flip(raw, offset, bit=0):
+    out = bytearray(raw)
+    out[offset] ^= 1 << bit
+    return bytes(out)
+
+
+def _set(raw, offset, value):
+    out = bytearray(raw)
+    out[offset] = value
+    return bytes(out)
+
+
+def mcc3_vectors():
+    s = MCC3_SEEDS
+    pub = {name: envelope.public_key_hex(seed) for name, seed in s.items()}
+    cmd_key, node = pub["command"], pub["node"]
+    k = mcc3.owner_keys(s["command"], node)
+    k_other_node = mcc3.owner_keys(s["command"], pub["other_node"])
+    k_other_owner = mcc3.owner_keys(s["other_owner"], node)
+    hexk = lambda keys: {name: v.hex().upper() for name, v in keys.items()}
+
+    def command(name, counter, text, nonce_first):
+        data = text.encode("utf-8")
+        signed = mcc3.signed_bytes(node, mcc3.ROAD_MQTT, 0, counter, MCC3_EXPIRY, MCC3_RID, data)
+        payload = mcc3.seal_command(s["command"], node, counter, MCC3_EXPIRY, MCC3_RID, text,
+                                    nonce=_nonce(nonce_first), keys=k)
+        return {"name": name, "counter": counter, "expiry": MCC3_EXPIRY, "flags": 0,
+                "rid": MCC3_RID.hex().upper(), "command": text, "nonce": _nonce(nonce_first).hex().upper(),
+                "signed": signed.hex().upper(), "signature": mcc3._sign(s["command"], signed).hex().upper(),
+                "topic": mcc3.command_topic(node), "reply_topic": mcc3.reply_topic(MCC3_RID),
+                "bytes": len(mcc3.unb64(payload)), "payload": payload}
+
+    commands_ = [command("V1 get name", 7, "get name", 0x20),
+                 command("exactly the first pad", 8, "x" * 64, 0x21),
+                 command("spills into the second pad", 9, "x" * 65, 0x22),
+                 command("UTF-8", 10, "set name SE-JKP-Väster", 0x23),
+                 command("the longest", 4294967295, "y" * 160, 0x24)]
+
+    def result(name, counter, code, clock, text, reply, nonce_first):
+        payload = mcc3.seal_result(k, counter, code, clock, text, reply, nonce=_nonce(nonce_first))
+        opened = mcc3.open_result(k, payload)
+        return {"name": name, "counter": counter, "code": code, "clock": clock, "command": text,
+                "reply": reply, "reply_opened": opened["reply"], "nonce": _nonce(nonce_first).hex().upper(),
+                "topic": mcc3.reply_topic(MCC3_RID), "bytes": len(mcc3.unb64(payload)), "payload": payload}
+
+    results = [result("V2 to V1", 7, 0, 1795000005, "get name", "> SE-JKG-LOUTEST", 0x30),
+               result("a refusal after authentication: replay", 7, 9, 1795000006, "get name", "", 0x31),
+               result("a long reply, cut to fit the second pad", 11, 0, 1795000007, "get neighbors",
+                      "n" * 600, 0x32)]
+
+    def mesh_req(name, counter, text, tag):
+        data = text.encode("utf-8")
+        signed = mcc3.signed_bytes(node, mcc3.ROAD_MESH, 0, counter, MCC3_EXPIRY, None, data)
+        req = mcc3.seal_mesh_request(s["command"], node, counter, MCC3_EXPIRY, text, companion_tag=tag, keys=k)
+        plain = mcc3._u32(MCC3_EXPIRY) + mcc3._sign(s["command"], signed) + data
+        plain += bytes(mcc3.MESH_COMMAND_FIELD - len(data))
+        return {"name": name, "counter": counter, "expiry": MCC3_EXPIRY, "flags": 0, "command": text,
+                "companion_tag": tag, "nonce": mcc3.mesh_nonce(counter).hex().upper(),
+                "signed": signed.hex().upper(), "signature": plain[4:68].hex().upper(),
+                "plaintext": plain.hex().upper(), "request": req.hex().upper(), "app_sends": req[4:].hex().upper()}
+
+    mesh_requests = [mesh_req("V3 set wifi.ssid", 7, "set wifi.ssid HomeNet", 0x6553F100),
+                     mesh_req("the longest: 57 bytes", 8, "set mqtt.cmd on " + "h" * 41, 0x6553F101)]
+    v3 = bytes.fromhex(mesh_requests[0]["request"])
+
+    resp = mcc3.seal_mesh_response(k, 0x6553F100, 7, 0, 1715770351, "OK", nonce=_nonce(0x50))
+    mesh_responses = [{"name": "V4 to V3", "companion_tag": 0x6553F100, "counter": 7, "code": 0,
+                       "clock": 1715770351, "reply": "OK", "nonce": _nonce(0x50).hex().upper(),
+                       "response": resp.hex().upper()}]
+
+    def alive(label, nonce_first, **fields):
+        payload = mcc3.seal_alive(k, fields, nonce=_nonce(nonce_first))
+        return {"name": label, "fields": fields, "nonce": _nonce(nonce_first).hex().upper(),
+                "topic": mcc3.alive_topic(node), "opened": mcc3.open_alive(k, payload), "payload": payload}
+
+    base = dict(boot=3, sequence=1, uptime=3600, clock=1795000000, last_counter=7, interval=900, flags=0x0B,
+                mesh=2, fingerprint=cmd_key[:8], via=0, version="lou-20", region="se-jkp", name="SE-JKG-LOUTEST")
+    alives = [alive("V5", 0x40, **base),
+              alive("no region, clock unset, every field at its longest", 0x41,
+                    **{**base, "clock": 0, "flags": 0x06, "mesh": 0, "via": 1, "region": "",
+                       "version": "v" * 40, "name": "SE-JKG-" + "Ö" * 20})]
+
+    # Refusals: what each side gets back when it opens these. "node" opens with its seed and the
+    # command key; "owner" with the 32-byte keys given.
+    v1 = mcc3.unb64(commands_[0]["payload"])
+    v2 = mcc3.unb64(results[0]["payload"])
+    v5 = mcc3.unb64(alives[0]["payload"])
+    b = mcc3.b64
+    data_v1, data_v3 = b"get name", b"set wifi.ssid HomeNet"
+
+    def sig(seed, road, rid, data):
+        return mcc3._sign(seed, mcc3.signed_bytes(node, road, 0, 7, MCC3_EXPIRY, rid, data))
+
+    def node_open(name, kind, value, outcome, node_seed=s["node"], last_counter=None):
+        out = {"name": name, "kind": kind, "opened_by": "node", "node_seed": node_seed, "command_key": cmd_key,
+               "input": value, "outcome": outcome}
+        if last_counter is not None:
+            out["last_counter"] = last_counter
+        return out
+
+    def owner_open(name, kind, value, keys, outcome):
+        return {"name": name, "kind": kind, "opened_by": "owner", "keys": hexk(keys), "input": value,
+                "outcome": outcome}
+
+    refusals = [
+        node_open("command: kind byte flipped", "command", b(_flip(v1, 0)), "bad-fields"),
+        node_open("command: flags bit 0 (delegation, reserved)", "command", b(_set(v1, 1, 0x01)), "bad-version"),
+        node_open("command: flags reserved bit 1", "command", b(_set(v1, 1, 0x02)), "bad-version"),
+        node_open("command: nonce bit flipped", "command", b(_flip(v1, 2)), "sig-invalid"),
+        node_open("command: ciphertext bit flipped (counter)", "command", b(_flip(v1, 14)), "sig-invalid"),
+        node_open("command: ciphertext bit flipped (command)", "command", b(_flip(v1, 102)), "sig-invalid"),
+        node_open("command: tag bit flipped", "command", b(_flip(v1, len(v1) - 1, 7)), "sig-invalid"),
+        node_open("command: one byte short", "command", b(v1[:-1]), "bad-fields"),
+        node_open("command: not base64url", "command", commands_[0]["payload"][:-1] + "=", "bad-fields"),
+        node_open("command: V1 at another node", "command", commands_[0]["payload"], "sig-invalid",
+                  node_seed=s["other_node"]),
+        node_open("command: sealed and signed by another owner's key", "command",
+                  mcc3.seal_command(s["other_owner"], node, 7, MCC3_EXPIRY, MCC3_RID, "get name",
+                                    nonce=_nonce(0x20)), "sig-invalid"),
+        node_open("command: sealed with the right key, signed by another owner's key", "command",
+                  b(mcc3._command_raw(k, _nonce(0x20), 0, 7, MCC3_EXPIRY, MCC3_RID,
+                                      sig(s["other_owner"], mcc3.ROAD_MQTT, MCC3_RID, data_v1), data_v1)),
+                  "sig-invalid"),
+        node_open("command: the V1 signature made with road 0x01", "command",
+                  b(mcc3._command_raw(k, _nonce(0x20), 0, 7, MCC3_EXPIRY, MCC3_RID,
+                                      sig(s["command"], mcc3.ROAD_MESH, MCC3_RID, data_v1), data_v1)),
+                  "sig-invalid"),
+        node_open("command: a '|' in the command", "command",
+                  b(mcc3._command_raw(k, _nonce(0x20), 0, 7, MCC3_EXPIRY, MCC3_RID,
+                                      sig(s["command"], mcc3.ROAD_MQTT, MCC3_RID, b"a|b"), b"a|b")),
+                  "command-chars"),
+        node_open("mesh: sub-type 0xC1 (the v1 road)", "mesh_request", _set(v3, 4, 0xC1).hex().upper(), "bad-fields"),
+        node_open("mesh: flags bit 0 (delegation, reserved)", "mesh_request", _set(v3, 5, 0x01).hex().upper(),
+                  "bad-version"),
+        node_open("mesh: counter not above the last accepted", "mesh_request", v3.hex().upper(), "replay",
+                  last_counter=7),
+        node_open("mesh: counter bit flipped (another keystream: the command field decrypts to noise)",
+                  "mesh_request", _flip(v3, 6).hex().upper(), "command-chars"),
+        node_open("mesh: ciphertext bit flipped in the expiry fails the signature", "mesh_request",
+                  _flip(v3, 10).hex().upper(), "sig-invalid"),
+        node_open("mesh: ciphertext bit flipped in the signature fails the signature", "mesh_request",
+                  _flip(v3, 40).hex().upper(), "sig-invalid"),
+        node_open("mesh: ciphertext bit flipped in the command fails the signature", "mesh_request",
+                  _flip(v3, 78).hex().upper(), "sig-invalid"),
+        node_open("mesh: ciphertext bit flipped in the padding (a NUL inside the command)", "mesh_request",
+                  _flip(v3, 120).hex().upper(), "command-chars"),
+        node_open("mesh: the last byte (always zero) flipped", "mesh_request", _flip(v3, 135).hex().upper(),
+                  "command-chars"),
+        node_open("mesh: V3 at another node (decrypts to noise)", "mesh_request", v3.hex().upper(), "command-chars",
+                  node_seed=s["other_node"]),
+        node_open("mesh: the V3 signature made with road 0x00", "mesh_request",
+                  mcc3._mesh_raw(k, 0x6553F100, 0, 7, MCC3_EXPIRY, sig(s["command"], mcc3.ROAD_MQTT, None, data_v3),
+                                 data_v3).hex().upper(), "sig-invalid"),
+        owner_open("result: kind byte flipped", "result", b(_flip(v2, 0)), k, "bad-fields"),
+        owner_open("result: nonce bit flipped", "result", b(_flip(v2, 1)), k, "sig-invalid"),
+        owner_open("result: ciphertext bit flipped", "result", b(_flip(v2, 13)), k, "sig-invalid"),
+        owner_open("result: tag bit flipped", "result", b(_flip(v2, len(v2) - 1, 7)), k, "sig-invalid"),
+        owner_open("result: tried with another node's keys", "result", results[0]["payload"], k_other_node,
+                   "sig-invalid"),
+        owner_open("alive: nonce bit flipped", "alive", b(_flip(v5, 1)), k, "sig-invalid"),
+        owner_open("alive: ciphertext bit flipped", "alive", b(_flip(v5, 13)), k, "sig-invalid"),
+        owner_open("alive: tag bit flipped", "alive", b(_flip(v5, len(v5) - 1, 7)), k, "sig-invalid"),
+        owner_open("alive: another owner's node (does not open)", "alive", alives[0]["payload"], k_other_owner,
+                   "sig-invalid"),
+        owner_open("alive: one byte short", "alive", b(v5[:-1]), k, "bad-fields"),
+        owner_open("mesh response: ciphertext bit flipped", "mesh_response", _flip(resp, 17).hex().upper(), k,
+                   "sig-invalid"),
+        owner_open("mesh response: tag bit flipped", "mesh_response", _flip(resp, len(resp) - 1).hex().upper(), k,
+                   "sig-invalid"),
+    ]
+
+    not_built = [{"road": road, "command": text} for road, text in (
+        ("mqtt", ""), ("mqtt", "a|b"), ("mqtt", "z" * 161), ("mqtt", "bell\x07"), ("mesh", "z" * 58),
+        ("mesh", "set wifi.ssid " + "Ö" * 22))]
+
+    return {
+        "_source": _source("mccontrol/mcc3.py"),
+        "_doc": "docs/wire-format-mcc3.md",
+        "constants": {
+            "topics": {"command": "mcc/cmd/<KEY>", "result": "mcc/r/<RID>", "alive": "mcc/alive/<KEY>",
+                       "ping": "mcc/ping/<KEY>", "alive_filter": mcc3.ALIVE_FILTER},
+            "sig_label": mcc3.SIG_LABEL.decode("ascii"),
+            "hkdf_info": {"cmd": mcc3.INFO_CMD + "<KEY>", "mesh": mcc3.INFO_MESH + "<KEY>",
+                          "alive": mcc3.INFO_ALIVE + "<KEY>"},
+            "road": {"mqtt": mcc3.ROAD_MQTT, "mesh": mcc3.ROAD_MESH},
+            "kind": {"command": mcc3.KIND_COMMAND, "result": mcc3.KIND_RESULT, "alive": mcc3.KIND_ALIVE},
+            "mesh_subtype": mcc3.MESH_SUBTYPE,
+            "command_pads": list(mcc3.COMMAND_PADS), "command_sizes": list(mcc3.COMMAND_SIZES),
+            "result_pads": list(mcc3.RESULT_PADS), "result_sizes": list(mcc3.RESULT_SIZES),
+            "alive_plaintext": mcc3.ALIVE_PLAIN, "alive_size": mcc3.ALIVE_SIZE,
+            "max_command": mcc3.MAX_COMMAND, "mesh_request": mcc3.MESH_REQUEST_LEN,
+            "mesh_command_field": mcc3.MESH_COMMAND_FIELD, "mesh_max_command": mcc3.MESH_MAX_COMMAND,
+            "mesh_max_reply": mcc3.MESH_MAX_REPLY,
+        },
+        "keys": {
+            "seeds": s, "public": pub,
+            "shared_secret": mcc3.shared_secret(s["command"], node).hex().upper(),
+            "shared_secret_from_node_side": mcc3.shared_secret(s["node"], cmd_key).hex().upper(),
+            "owner": hexk(k), "node_side": hexk(mcc3.node_keys(s["node"], cmd_key)),
+            "other_node": hexk(k_other_node), "other_owner": hexk(k_other_owner),
+        },
+        "commands": commands_,
+        "results": results,
+        "mesh_requests": mesh_requests,
+        "mesh_responses": mesh_responses,
+        "alive": alives,
+        "refusals": refusals,
+        "not_built": not_built,
+    }
+
+
 # -- files -----------------------------------------------------------------------------------
 
 def _dump(obj):
@@ -515,6 +743,7 @@ def files():
     """`{path relative to the spec repository: text}` of everything this module writes."""
     out = {f"data/{name}": _dump(obj) for name, obj in data().items()}
     out["vectors/vectors.json"] = _dump(vectors())
+    out["vectors/mcc3-vectors.json"] = _dump(mcc3_vectors())
     return out
 
 
