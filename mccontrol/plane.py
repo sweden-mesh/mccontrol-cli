@@ -103,6 +103,67 @@ def send(config, seed_hex, node_key_hex, command, counter, keys=None, wait_secs=
     return topic, payload, dict(answers)
 
 
+# -- a forward through a relay ---------------------------------------------------------------
+
+# A relay refuses an expiry more than 300 s ahead of its own clock; half of that leaves room
+# for two clocks that disagree.
+FORWARD_TTL_SECS = 150
+# The relay waits 120 s for the target's answer before it says no-answer.
+FORWARD_WAIT_SECS = 135.0
+
+
+def forward_payload(relay_keys, relay_key_hex, counter, target_key_hex, route, body, path_len=0, path=b"",
+                    ttl_secs=FORWARD_TTL_SECS, now=None):
+    """The sealed forward for `mcc/cmd/<RELAY KEY>`, its result named to this session's RID."""
+    expiry = int(time.time() if now is None else now) + min(int(ttl_secs), FORWARD_TTL_SECS)
+    try:
+        return mcc3.seal_forward(relay_keys, relay_key_hex, counter, expiry, session()["rid"], target_key_hex,
+                                 route, body, path_len=path_len, path=path)
+    except mcc3.Mcc3Error as exc:
+        raise envelope.EnvelopeError(str(exc)) from None
+
+
+def forward(config, relay_key_hex, relay_keys, payload, counter, wait_secs=FORWARD_WAIT_SECS, progress=None,
+            client_factory=None):
+    """Publish a sealed forward (`forward_payload`) on the relay's `mcc/cmd/<KEY>` and wait for
+    its result on this session's RID. Returns `(topic, result)`: what `mcc3.open_forward_result`
+    gives under the relay's K_fwd for this forward counter, or None when the relay said
+    nothing. A result that opens is the relay's own word; the answer inside is still sealed
+    to the target's owner."""
+    if not config.get("tls"):
+        raise transport.BrokerError("the mcc/ plane takes commands on the broker's TLS listener only: "
+                                    "mccontrol config --tls on --port 8883")
+    topic = mcc3.command_topic(relay_key_hex)
+    reply = mcc3.reply_topic(session()["rid"])
+    got = []
+    done = threading.Event()
+
+    def on_message(_c, _u, msg):
+        if msg.topic != reply:
+            return
+        try:
+            r = mcc3.open_forward_result(relay_keys, msg.payload)
+        except mcc3.Refused:
+            return                      # a command's result, another relay's, or altered
+        if r["counter"] != counter:
+            return
+        got.append(r)
+        done.set()
+
+    client, cfg, s = _connect(config, client_factory)
+    client.on_message = on_message
+    transport._connect(client, cfg, seed_hex=s["seed"])
+    try:
+        client.subscribe(reply, qos=1)
+        info = client.publish(topic, payload, qos=1)
+        info.wait_for_publish(timeout=10)
+        transport._wait(wait_secs, done.is_set, lambda: [], progress)
+    finally:
+        client.loop_stop()
+        client.disconnect()
+    return topic, got[0] if got else None
+
+
 # -- alive -----------------------------------------------------------------------------------
 
 def open_alive(seed_hex, cache, key, payload):

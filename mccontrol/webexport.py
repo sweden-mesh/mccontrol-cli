@@ -7,8 +7,8 @@ capabilities, brokers, the areas (county, scope, IATA) and the protocol's consta
 inputs and the exact output this package gives for them (envelopes v1 and v2, results r1, r2
 and r3, the broker token, the registration line, the checks the screens make before
 signing, and the mesh road's request and response bytes with the wire-format document's own
-worked vectors), and `vectors/mcc3-vectors.json` (mcc3, lou-20: commands, results, the mesh road, alive
-and the refusals), so the JavaScript ports and the firmware can prove byte-identical behaviour.
+worked vectors), and `vectors/mcc3-vectors.json` (mcc3, lou-20: commands, results, the mesh road, forwards
+through a relay, alive and the refusals), so the JavaScript ports and the firmware can prove byte-identical behaviour.
 `tests/test_webexport.py` fails when the vendored copy of the spec (`spec/`, pinned by tag with
 `scripts/spec_sync.py`) differs from what this writes: a change here ships as a new spec tag.
 
@@ -94,11 +94,20 @@ def data():
             },
         },
         "results.json": {
-            "_source": _source("mccontrol/envelope.py"),
+            "_source": _source("mccontrol/envelope.py", "mccontrol/mcc3.py"),
             "unknown": "unknown-{code}",
             "codes": {str(k): v for k, v in sorted(envelope.RESULT_CODES.items())},
             "help": {str(k): v for k, v in sorted(envelope.RESULT_HELP.items())},
             "help_sv": {str(k): v for k, v in sorted(envelope.RESULT_HELP_SV.items())},
+            # what a relay says of a forward: its own numbers, apart from the result codes above
+            "forward": {
+                "rule": "the status of a forward result. 0: the target's response is inside, with its own "
+                        "result code. 1 is silence, never a refusal. 2 and up: the relay sent nothing",
+                "unknown": "unknown-{status}",
+                "statuses": {str(n): name for n, name in enumerate(mcc3.FORWARD_STATUSES)},
+                "help": {str(k): v for k, v in sorted(mcc3.FORWARD_HELP.items())},
+                "help_sv": {str(k): v for k, v in sorted(mcc3.FORWARD_HELP_SV.items())},
+            },
         },
         "facts.json": {
             "_source": _source("mccontrol/facts.py"),
@@ -121,6 +130,9 @@ def data():
             "v2_from": firmware.V2_FROM,
             "utf8_from": firmware.UTF8_FROM,
             "mesh_from": firmware.MESH_FROM,
+            "relay_from": firmware.RELAY_FROM,
+            "relay_rule": "a node relays when it is not mesh only and its revision is relay_from or later, or "
+                          "its alive message opened with your key; alive flags bit 4 (0x10) says relaying is on",
             "mesh_only_rule": "a version containing -lou- whose features have rc and which does not contain "
                               "-observer (lower case); a device's own mesh_only (true/false) wins when set",
             "private_subtype": {"old": firmware.PRIVATE_SUBTYPE_OLD, "new": firmware.PRIVATE_SUBTYPE,
@@ -151,7 +163,8 @@ def data():
                       for scb, county, scope, iatas in areas.AREAS],
         },
         "protocol.json": {
-            "_source": _source("mccontrol/envelope.py", "mccontrol/token.py", "mccontrol/mesh.py"),
+            "_source": _source("mccontrol/envelope.py", "mccontrol/token.py", "mccontrol/mesh.py",
+                               "mccontrol/mcc3.py"),
             "topic_prefix": envelope.TOPIC_PREFIX,
             "field_sep": envelope.FIELD_SEP,
             "v1": envelope.VERSION_TAG, "v2": envelope.V2_TAG,
@@ -170,6 +183,9 @@ def data():
                       "client": token.CLIENT},
             "mesh": MESH_CONSTANTS,
             "_mesh_layout": MESH_LAYOUT,
+            "mcc3_forward": {"kind": mcc3.KIND_FORWARD, "result_kind": mcc3.KIND_FORWARD_RESULT,
+                             "hkdf_info": mcc3.INFO_FWD, "flag_zero_hop": mcc3.FLAG_ZERO_HOP,
+                             "alive_flag_relay": mcc3.ALIVE_FLAG_RELAY, **MCC3_FORWARD},
         },
     }
 
@@ -435,6 +451,7 @@ CHECK_COMMANDS = (
     "set mqtt6.preset custom", "set name SE-JKP-Väster", "mqtt.cmd ping", "advert", "time 1", "log", "neighbors",
     "neighbors x", "clear stats", "gps on", "powersaving off", "sensor list", "foo", "set lat 1", "get lon",
     "set tx 22", "set txdelay 0.5", "tempradio x",
+    "set mqtt.relay own", "set mqtt.relay off", "get mqtt.relay", "set mqtt.cmd.relay own",
 )
 
 CHECK_VERSIONS = (
@@ -455,10 +472,13 @@ CHECK_VERSIONS = (
     "nrf52-v1.18.0-lou-19-arrc-1a2b3c4d",
     "esp32s3-v1.18.0-lou-19-ar-1a2b3c4d",
     "esp32s3-v1.18.0-lou-18-rc-1a2b3c4d",
+    "esp32s3-v1.18.0-lou-20-arrc-observer-1a2b3c4d",
+    "nrf52-v1.18.0-lou-20-rc-1a2b3c4d",
 )
 
 FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "mqtt.cmd ping",
-                     "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00", "ota update")
+                     "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00", "ota update",
+                     "set mqtt.relay own", "get mqtt.relay")
 
 FACT_ANSWERS = (
     ("ver", "> esp32s3-v1.17.1-lou-18-arrc-observer-1a2b3c4d"),
@@ -491,6 +511,7 @@ def _checks():
             "entry": firmware.entry_for(v)[0],
             "speaks_v2": firmware.speaks_v2(v),
             "admits_utf8": firmware.admits_utf8(v),
+            "relays": firmware.relays(v),
             "private_subtype": firmware.private_subtype(v),
             "admits": {c: firmware.admits(v, c) for c in FIRMWARE_COMMANDS},
             "lacks": {c: firmware.lacks(v, c) for c in FIRMWARE_COMMANDS},
@@ -519,6 +540,21 @@ MCC3_RID = bytes(range(16))
 MCC3_EXPIRY = 1795000000
 
 
+# A forward through a relay and its result; in protocol.json too, for the interfaces.
+MCC3_FORWARD = {
+    "size": mcc3.FORWARD_SIZE, "result_size": mcc3.FORWARD_RESULT_SIZE,
+    "path": mcc3.FORWARD_PATH, "body": mcc3.FORWARD_BODY, "min_body": mcc3.FORWARD_MIN_BODY,
+    "body_subtypes": [mcc3.MESH_V1_SUBTYPE, mcc3.MESH_SUBTYPE],
+    "result_plaintext": mcc3.FORWARD_RESULT_PLAIN, "result_path": mcc3.FORWARD_RESULT_PATH,
+    "max_response": mcc3.FORWARD_MAX_RESPONSE,
+    "routes": {name: number for number, name in enumerate(mcc3.ROUTES)},
+    "statuses": list(mcc3.FORWARD_STATUSES),
+    "sent": {"nothing": mcc3.SENT_NOTHING, "direct": mcc3.SENT_DIRECT, "flood": mcc3.SENT_FLOOD},
+    "snr_none": mcc3.SNR_NONE, "path_none": mcc3.PATH_NONE,
+    "max_ttl_secs": mcc3.FORWARD_MAX_TTL,
+}
+
+
 def _nonce(first):
     return bytes(range(first, first + 12))
 
@@ -543,6 +579,7 @@ def mcc3_vectors():
     k_other_node = mcc3.owner_keys(s["command"], pub["other_node"])
     k_other_owner = mcc3.owner_keys(s["other_owner"], node)
     hexk = lambda keys: {name: v.hex().upper() for name, v in keys.items()}
+    b = mcc3.b64
 
     def command(name, counter, text, nonce_first):
         data = text.encode("utf-8")
@@ -573,25 +610,76 @@ def mcc3_vectors():
                result("a long reply, cut to fit the second pad", 11, 0, 1795000007, "get neighbors",
                       "n" * 600, 0x32)]
 
-    def mesh_req(name, counter, text, tag):
+    def mesh_req(name, counter, text, tag, flags=0):
         data = text.encode("utf-8")
-        signed = mcc3.signed_bytes(node, mcc3.ROAD_MESH, 0, counter, MCC3_EXPIRY, None, data)
-        req = mcc3.seal_mesh_request(s["command"], node, counter, MCC3_EXPIRY, text, companion_tag=tag, keys=k)
+        signed = mcc3.signed_bytes(node, mcc3.ROAD_MESH, flags, counter, MCC3_EXPIRY, None, data)
+        req = mcc3.seal_mesh_request(s["command"], node, counter, MCC3_EXPIRY, text, companion_tag=tag, keys=k,
+                                     flags=flags)
         plain = mcc3._u32(MCC3_EXPIRY) + mcc3._sign(s["command"], signed) + data
         plain += bytes(mcc3.MESH_COMMAND_FIELD - len(data))
-        return {"name": name, "counter": counter, "expiry": MCC3_EXPIRY, "flags": 0, "command": text,
+        return {"name": name, "counter": counter, "expiry": MCC3_EXPIRY, "flags": flags, "command": text,
                 "companion_tag": tag, "nonce": mcc3.mesh_nonce(counter).hex().upper(),
                 "signed": signed.hex().upper(), "signature": plain[4:68].hex().upper(),
                 "plaintext": plain.hex().upper(), "request": req.hex().upper(), "app_sends": req[4:].hex().upper()}
 
     mesh_requests = [mesh_req("V3 set wifi.ssid", 7, "set wifi.ssid HomeNet", 0x6553F100),
-                     mesh_req("the longest: 57 bytes", 8, "set mqtt.cmd on " + "h" * 41, 0x6553F101)]
+                     mesh_req("the longest: 57 bytes", 8, "set mqtt.cmd on " + "h" * 41, 0x6553F101),
+                     mesh_req("V3z: V3 asking for a zero-hop answer", 7, "set wifi.ssid HomeNet", 0x6553F100,
+                              flags=mcc3.FLAG_ZERO_HOP)]
     v3 = bytes.fromhex(mesh_requests[0]["request"])
+    v3z = bytes.fromhex(mesh_requests[2]["request"])
 
     resp = mcc3.seal_mesh_response(k, 0x6553F100, 7, 0, 1715770351, "OK", nonce=_nonce(0x50))
     mesh_responses = [{"name": "V4 to V3", "companion_tag": 0x6553F100, "counter": 7, "code": 0,
                        "clock": 1715770351, "reply": "OK", "nonce": _nonce(0x50).hex().upper(),
                        "response": resp.hex().upper()}]
+
+    # Forwards: the node of these vectors is the relay, the second node the target. The relay
+    # never opens the body, so F1 carries V3z as it stands.
+    target = pub["other_node"]
+    v1_body = mesh.request(s["command"], mesh.topic(None, target, mesh_only=True), 7, MCC3_EXPIRY, "get name")
+
+    def forward(name, counter, route, body, nonce_first, path_len=0, path=b"", path_field=None):
+        nonce = _nonce(nonce_first)
+        raw = mcc3._forward_raw(k, nonce, 0, counter, MCC3_EXPIRY, MCC3_RID, bytes.fromhex(target), route, path_len,
+                                path if path_field is None else path_field, len(body), body)
+        payload = mcc3.b64(raw)
+        opened = mcc3.open_forward(s["node"], cmd_key, payload)
+        return {"name": name, "counter": counter, "expiry": MCC3_EXPIRY, "flags": 0, "rid": MCC3_RID.hex().upper(),
+                "target": target, "route": route, "path_len": path_len, "path": path.hex().upper(),
+                "path_field": (path if path_field is None else path_field).hex().upper(),
+                "body_len": len(body), "body": body.hex().upper(), "nonce": nonce.hex().upper(),
+                "topic": mcc3.command_topic(node), "reply_topic": mcc3.reply_topic(MCC3_RID),
+                "bytes": len(raw), "payload": payload,
+                "opened": {**opened, "rid": opened["rid"].hex().upper(), "path": opened["path"].hex().upper(),
+                           "body": opened["body"].hex().upper()}}
+
+    forwards = [forward("F1 direct, no hops, a 0xC2 request with the zero-hop flag", 9, mcc3.ROUTE_DIRECT,
+                        v3z[4:], 0x60),
+                forward("F2 flood in the region home, a 0xC1 request of 81 bytes; path length 0, so the three "
+                        "bytes in the path field are not a path", 10, mcc3.ROUTE_FLOOD, v1_body, 0x61,
+                        path_field=bytes.fromhex("A1B2C3"))]
+
+    def forward_result(name, counter, status, clock, sent, snr, path_len, path, response, nonce_first):
+        nonce = _nonce(nonce_first)
+        payload = mcc3.seal_forward_result(k, counter, status, clock, sent=sent, snr=snr, path_len=path_len,
+                                           path=path, response=response, nonce=nonce)
+        return {"name": name, "counter": counter, "status": status, "status_name": mcc3.FORWARD_STATUSES[status],
+                "clock": clock, "sent": sent, "snr": snr, "path_len": path_len, "path": path.hex().upper(),
+                "response": response.hex().upper(), "nonce": nonce.hex().upper(),
+                "topic": mcc3.reply_topic(MCC3_RID), "bytes": len(mcc3.unb64(payload)), "payload": payload}
+
+    forward_results = [
+        forward_result("F3 to F1: answered, V4 after its tag", 9, 0, 1795000005, mcc3.SENT_DIRECT, 22, None, b"",
+                       resp[4:], 0x70),
+        forward_result("F4 no answer to a flood; the path is two one-byte hashes", 10, 1, 1795000006,
+                       mcc3.SENT_FLOOD, None, 2, bytes.fromhex("A1B2"), b"", 0x71)]
+    f1 = mcc3.unb64(forwards[0]["payload"])
+    f3 = mcc3.unb64(forward_results[0]["payload"])
+
+    def bad_forward(body=v3z[4:], body_len=None, route=mcc3.ROUTE_DIRECT, path_len=0, to=target, flags=0):
+        return b(mcc3._forward_raw(k, _nonce(0x60), flags, 9, MCC3_EXPIRY, MCC3_RID, bytes.fromhex(to), route,
+                                   path_len, b"", len(body) if body_len is None else body_len, body))
 
     def alive(label, nonce_first, **fields):
         payload = mcc3.seal_alive(k, fields, nonce=_nonce(nonce_first))
@@ -603,14 +691,14 @@ def mcc3_vectors():
     alives = [alive("V5", 0x40, **base),
               alive("no region, clock unset, every field at its longest", 0x41,
                     **{**base, "clock": 0, "flags": 0x06, "mesh": 0, "via": 1, "region": "",
-                       "version": "v" * 40, "name": "SE-JKG-" + "Ö" * 20})]
+                       "version": "v" * 40, "name": "SE-JKG-" + "Ö" * 20}),
+              alive("relaying on: flags bit 4", 0x42, **{**base, "sequence": 2, "flags": 0x1B})]
 
     # Refusals: what each side gets back when it opens these. "node" opens with its seed and the
     # command key; "owner" with the 32-byte keys given.
     v1 = mcc3.unb64(commands_[0]["payload"])
     v2 = mcc3.unb64(results[0]["payload"])
     v5 = mcc3.unb64(alives[0]["payload"])
-    b = mcc3.b64
     data_v1, data_v3 = b"get name", b"set wifi.ssid HomeNet"
 
     def sig(seed, road, rid, data):
@@ -676,6 +764,52 @@ def mcc3_vectors():
         node_open("mesh: the V3 signature made with road 0x00", "mesh_request",
                   mcc3._mesh_raw(k, 0x6553F100, 0, 7, MCC3_EXPIRY, sig(s["command"], mcc3.ROAD_MQTT, None, data_v3),
                                  data_v3).hex().upper(), "sig-invalid"),
+        node_open("mesh: flags 0x03 (zero-hop with the reserved delegation bit)", "mesh_request",
+                  _set(v3, 5, 0x03).hex().upper(), "bad-version"),
+        node_open("mesh: flags a reserved bit (0x04)", "mesh_request", _set(v3, 5, 0x04).hex().upper(),
+                  "bad-version"),
+        node_open("mesh: the V3 signature (flags 0) under flags 0x02", "mesh_request", _set(v3, 5, 0x02).hex().upper(),
+                  "sig-invalid"),
+        node_open("mesh: the V3z signature (flags 0x02) under flags 0", "mesh_request",
+                  _set(v3z, 5, 0x00).hex().upper(), "sig-invalid"),
+        node_open("forward: a command (kind 0x43) is not a forward", "forward", commands_[2]["payload"],
+                  "bad-fields"),
+        node_open("forward: one byte short", "forward", b(f1[:-1]), "bad-fields"),
+        node_open("forward: flags 1", "forward", bad_forward(flags=1), "bad-version"),
+        node_open("forward: flags byte altered in F1", "forward", b(_set(f1, 1, 0x01)), "bad-version"),
+        node_open("forward: nonce bit flipped (header)", "forward", b(_flip(f1, 2)), "sig-invalid"),
+        node_open("forward: ciphertext bit flipped (counter)", "forward", b(_flip(f1, 14)), "sig-invalid"),
+        node_open("forward: ciphertext bit flipped (body)", "forward", b(_flip(f1, 130)), "sig-invalid"),
+        node_open("forward: tag bit flipped", "forward", b(_flip(f1, len(f1) - 1, 7)), "sig-invalid"),
+        node_open("forward: F1 at another node (its K_fwd does not open it)", "forward", forwards[0]["payload"],
+                  "sig-invalid", node_seed=s["other_node"]),
+        node_open("forward: sealed by another owner's key", "forward",
+                  b(mcc3._forward_raw(k_other_owner, _nonce(0x60), 0, 9, MCC3_EXPIRY, MCC3_RID,
+                                      bytes.fromhex(target), 0, 0, b"", 132, v3z[4:])), "sig-invalid"),
+        node_open("forward: body's first byte 0xC3", "forward", bad_forward(body=_set(v3z[4:], 0, 0xC3)),
+                  "bad-body"),
+        node_open("forward: body length 73 (0xC1)", "forward", bad_forward(body=v1_body[:73]), "bad-body"),
+        node_open("forward: a 0xC2 body with length 131", "forward", bad_forward(body_len=131), "bad-body"),
+        node_open("forward: body length 133", "forward", bad_forward(body_len=133), "bad-body"),
+        node_open("forward: route 3", "forward", bad_forward(route=3), "bad-body"),
+        node_open("forward: path length 58 one-byte hashes overruns 57", "forward", bad_forward(path_len=58),
+                  "bad-body"),
+        node_open("forward: path length 0x5D, 29 two-byte hashes overrun 57", "forward", bad_forward(path_len=0x5D),
+                  "bad-body"),
+        node_open("forward: path length with the reserved hash size (0xC1)", "forward", bad_forward(path_len=0xC1),
+                  "bad-body"),
+        node_open("forward: the target is the relay itself", "forward", bad_forward(to=node), "bad-body"),
+        owner_open("forward result: kind byte flipped (header)", "forward_result", b(_flip(f3, 0)), k,
+                   "bad-fields"),
+        owner_open("forward result: a command result (kind 0x52) is not a forward result", "forward_result",
+                   results[0]["payload"], k, "bad-fields"),
+        owner_open("forward result: nonce bit flipped (header)", "forward_result", b(_flip(f3, 1)), k,
+                   "sig-invalid"),
+        owner_open("forward result: ciphertext bit flipped", "forward_result", b(_flip(f3, 13)), k, "sig-invalid"),
+        owner_open("forward result: tag bit flipped", "forward_result", b(_flip(f3, len(f3) - 1, 7)), k,
+                   "sig-invalid"),
+        owner_open("forward result: tried with another relay's keys", "forward_result",
+                   forward_results[0]["payload"], k_other_node, "sig-invalid"),
         owner_open("result: kind byte flipped", "result", b(_flip(v2, 0)), k, "bad-fields"),
         owner_open("result: nonce bit flipped", "result", b(_flip(v2, 1)), k, "sig-invalid"),
         owner_open("result: ciphertext bit flipped", "result", b(_flip(v2, 13)), k, "sig-invalid"),
@@ -706,16 +840,20 @@ def mcc3_vectors():
                        "ping": "mcc/ping/<KEY>", "alive_filter": mcc3.ALIVE_FILTER},
             "sig_label": mcc3.SIG_LABEL.decode("ascii"),
             "hkdf_info": {"cmd": mcc3.INFO_CMD + "<KEY>", "mesh": mcc3.INFO_MESH + "<KEY>",
-                          "alive": mcc3.INFO_ALIVE + "<KEY>"},
+                          "alive": mcc3.INFO_ALIVE + "<KEY>", "fwd": mcc3.INFO_FWD + "<KEY>"},
             "road": {"mqtt": mcc3.ROAD_MQTT, "mesh": mcc3.ROAD_MESH},
-            "kind": {"command": mcc3.KIND_COMMAND, "result": mcc3.KIND_RESULT, "alive": mcc3.KIND_ALIVE},
-            "mesh_subtype": mcc3.MESH_SUBTYPE,
+            "kind": {"command": mcc3.KIND_COMMAND, "result": mcc3.KIND_RESULT, "alive": mcc3.KIND_ALIVE,
+                     "forward": mcc3.KIND_FORWARD, "forward_result": mcc3.KIND_FORWARD_RESULT},
+            "mesh_subtype": mcc3.MESH_SUBTYPE, "mesh_flags": list(mcc3.MESH_FLAGS),
+            "flag_zero_hop": mcc3.FLAG_ZERO_HOP,
             "command_pads": list(mcc3.COMMAND_PADS), "command_sizes": list(mcc3.COMMAND_SIZES),
             "result_pads": list(mcc3.RESULT_PADS), "result_sizes": list(mcc3.RESULT_SIZES),
             "alive_plaintext": mcc3.ALIVE_PLAIN, "alive_size": mcc3.ALIVE_SIZE,
             "max_command": mcc3.MAX_COMMAND, "mesh_request": mcc3.MESH_REQUEST_LEN,
             "mesh_command_field": mcc3.MESH_COMMAND_FIELD, "mesh_max_command": mcc3.MESH_MAX_COMMAND,
             "mesh_max_reply": mcc3.MESH_MAX_REPLY,
+            "forward": MCC3_FORWARD,
+            "alive_flag_relay": mcc3.ALIVE_FLAG_RELAY,
         },
         "keys": {
             "seeds": s, "public": pub,
@@ -728,6 +866,8 @@ def mcc3_vectors():
         "results": results,
         "mesh_requests": mesh_requests,
         "mesh_responses": mesh_responses,
+        "forwards": forwards,
+        "forward_results": forward_results,
         "alive": alives,
         "refusals": refusals,
         "not_built": not_built,

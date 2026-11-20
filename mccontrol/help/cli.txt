@@ -17,10 +17,12 @@ The same work without the screens:
   mccontrol group add|remove canary <device...>
   mccontrol group send canary ver       each member in turn, its own topic
   mccontrol groups                      the groups and their members
-  mccontrol history loutest             each line says its road: mqtt or mesh
+  mccontrol history loutest             each line says its road (mqtt, mesh, relay)
   mccontrol config --companion tcp:10.0.0.5:5000   your radio, for the mesh
   mccontrol send loutest ver --via mesh       through your companion
   mccontrol send loutest ver --via auto       the mesh when MQTT has failed
+  mccontrol send cabin ver --via relay:loutest    loutest sends it by radio
+  mccontrol send cabin ver --via relay:loutest --route flood
   mccontrol help [topic]                this help as text
 
 A device is named by its name or by any unique prefix of its name or id.

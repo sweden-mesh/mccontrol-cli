@@ -110,7 +110,7 @@ def mqtt_heard_at(store, device, now=None):
     except beacon.BeaconError:
         pass
     seen = [_when(device.get("last_heard_mqtt")), _when((device.get("fleet") or {}).get("seen"))]
-    if not device.get("last_heard_mesh"):
+    if not device.get("last_heard_mesh") and not device.get("last_heard_relay"):
         seen.append(_when(device.get("last_heard")))      # from before roads were recorded: MQTT
     seen = [s for s in seen if s is not None]
     return max(seen) if seen else None
@@ -222,6 +222,8 @@ def act(store, command, devices, label, dry_run=False, wait_secs=None, progress=
         raise envelope.EnvelopeError(why)
     if via == "mesh":
         raise envelope.EnvelopeError("the mesh road goes to one node at a time; an area act goes over MQTT")
+    if via == RELAY_ROAD:
+        raise envelope.EnvelopeError(RELAY_ONE_NODE)
     if not devices:
         raise envelope.EnvelopeError(f"no device of yours in {label}")
     order = list(devices)
@@ -245,18 +247,24 @@ def act(store, command, devices, label, dry_run=False, wait_secs=None, progress=
 
 
 def send(store, command, device=None, region=None, dry_run=False, wait_secs=None, progress=None, script=None,
-         via="mqtt", county=None):
+         via="mqtt", county=None, relay=None, route="direct", path=None):
     """Sign and send `command` to one device; with `region` (an IATA code) or `county` (a
     node's `region home`), to each of your devices there in turn (`act`): there is no
     broadcast. `script`, here and below, stands in for the broker in tests
     (`transport._fake`). `via` picks the road (`road`): MQTT, the mesh through your
     companion, or auto. The plane is the node's (`scheme`): mcc3 for lou-20 and later, the
-    old per-node IATA scheme before.
+    old per-node IATA scheme before. `via="relay"` is asked for by name, never chosen by
+    auto: `relay` (a device of yours on MQTT) transmits the request (`send_relay`).
 
     Returns `(topic, payload, {node: Result}, lines)`, where `lines` is what to show.
     Raises `envelope.EnvelopeError`, `transport.BrokerError`, `mesh.MeshError` or
     `store.StoreError`.
     """
+    if via == RELAY_ROAD:
+        if device is None:
+            raise envelope.EnvelopeError(RELAY_ONE_NODE)
+        return send_relay(store, command, device, relay, route=route, path=path, dry_run=dry_run,
+                          wait_secs=wait_secs, progress=progress, script=script)
     if device is None:
         if not (region or county):
             raise envelope.EnvelopeError("a command goes to a device, or to each device of an area")
@@ -290,15 +298,8 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
         raise envelope.EnvelopeError(f"the node would refuse {command!r} over the mesh: {refused}")
     if scheme(device) == "mcc3":
         return _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress, script, why, fallback)
-    mesh.check_command(command)             # 59 bytes, before anything is signed
-    if firmware.speaks_mesh(device.get("ver")) is False:
-        raise envelope.EnvelopeError(f"{device['name'] or device['node']} runs {device.get('ver')}; the mesh "
-                                     f"road needs lou-19 with the plane (rc)")
-    if not command.isascii() and not firmware.admits_utf8(device.get("ver")):
-        raise envelope.EnvelopeError(f"{device['name']} runs {device.get('ver') or 'an unknown version'}, "
-                                     f"which takes plain ASCII only")
     region = (device.get("region") or "").upper()
-    topic = mesh.topic(region, device.get("key"), only)
+    topic = _mesh_topic(command, device, only)
     spec = config.get("companion") or ""
     head = f"over the mesh{f' ({why})' if why else ''}"
     if dry_run:
@@ -322,6 +323,19 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
                                               wait_secs=wait, progress=progress)
     return _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback,
                       wait_secs, progress, script)
+
+
+def _mesh_topic(command, device, only):
+    """The topic a lou-19 mesh request is signed for, after the checks that come before any
+    signing: 59 bytes, a version with the road, plain ASCII where the node takes only that."""
+    mesh.check_command(command)
+    if firmware.speaks_mesh(device.get("ver")) is False:
+        raise envelope.EnvelopeError(f"{device['name'] or device['node']} runs {device.get('ver')}; the mesh "
+                                     f"road needs lou-19 with the plane (rc)")
+    if not command.isascii() and not firmware.admits_utf8(device.get("ver")):
+        raise envelope.EnvelopeError(f"{device['name']} runs {device.get('ver') or 'an unknown version'}, "
+                                     f"which takes plain ASCII only")
+    return mesh.topic((device.get("region") or "").upper(), device.get("key"), only)
 
 
 def _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback, wait_secs,
@@ -373,6 +387,166 @@ def _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress
                                             progress=progress)
     return _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback,
                       wait_secs, progress, script)
+
+
+# -- through a relay ---------------------------------------------------------------------------
+#
+# A node of yours on MQTT transmits the mesh-road request to another node and returns the
+# answer over MQTT. It spends the relay's airtime, so it is asked for by name, one node at a
+# time, and the request is a mesh-road request: the same rules as `send_mesh`.
+
+RELAY_ROAD = "relay"
+RELAY_ONE_NODE = "a relay carries a command to one node at a time; an area or a group goes over MQTT"
+ROUTE_TEXT = {"direct": "direct", "flood": "flood in the relay's region",
+              "flood-wide": "flood in the relay's default scope"}
+
+
+def relay_refusal(relay):
+    """Why `relay` cannot carry a request, or None: it must be on MQTT and known to run
+    lou-20 or later (its alive opened with your key, or its version says so)."""
+    name = relay.get("name") or relay["node"]
+    if firmware.device_mesh_only(relay):
+        return f"{name} is mesh only (no MQTT), so it cannot relay"
+    alive = relay.get("alive") or {}
+    if not (alive and alive.get("state") != "not-yours") and not firmware.relays(relay.get("ver")):
+        return (f"{name} is not known to run lou-20 or later, which a relay needs; "
+                f"refresh it to read its version")
+    return None
+
+
+def relay_path(text):
+    """`(path length byte, path bytes)` from a path as typed: hex of one-byte hashes
+    (`A1B2`), or `2:HEX` / `3:HEX` for longer hashes; empty or `none` is no hops."""
+    text = (text or "").strip()
+    if text.lower() in ("", "none"):
+        return 0, b""
+    size, _, hops = text.rpartition(":")
+    try:
+        size = int(size or 1)
+        path = bytes.fromhex(hops)
+    except ValueError:
+        raise envelope.EnvelopeError("a path is hex, e.g. A1B2 (2:A1B2C3D4 for two-byte hashes), "
+                                     "or none") from None
+    if size not in (1, 2, 3) or len(path) % size or not path:
+        raise envelope.EnvelopeError("a path is whole hashes of 1, 2 or 3 bytes")
+    path_len = (size - 1) << 6 | len(path) // size
+    if len(path) // size > 63 or mcc3.path_bytes(path_len, mcc3.FORWARD_PATH) is None:
+        raise envelope.EnvelopeError(f"a path through a relay is at most {mcc3.FORWARD_PATH} bytes")
+    return path_len, path
+
+
+def _hops(path_len):
+    return "no hops" if not path_len & 63 else f"{path_len & 63} hop(s)"
+
+
+def send_relay(store, command, device, relay, route="direct", path=None, dry_run=False, wait_secs=None,
+               progress=None, script=None):
+    """One command to `device` through `relay`, a node of yours on MQTT that transmits the
+    mesh-road request and returns the answer. `route` is direct (along `path`; by default the
+    path the last answer taught this relay, else no hops), flood or flood-wide. Everything is
+    checked before anything is signed. Returns as `send`."""
+    config = store.config()
+    text = " ".join((command or "").split())
+    if relay is None:
+        raise envelope.EnvelopeError("name the relay, a device of yours on MQTT: --via relay:<device>")
+    if relay["node"] == device["node"]:
+        raise envelope.EnvelopeError("a node cannot relay to itself; send it over MQTT")
+    why = relay_refusal(relay)
+    if why:
+        raise envelope.EnvelopeError(why)
+    if route not in mcc3.ROUTES:
+        raise envelope.EnvelopeError(f"the route is one of {', '.join(mcc3.ROUTES)}")
+    only = firmware.device_mesh_only(device)
+    refused = denylist.mesh_refusal(text, mesh_only=only)
+    if refused:
+        raise envelope.EnvelopeError(f"the node would refuse {command!r} over the mesh: {refused}")
+    relay_key = _whole_key(relay)
+    new = scheme(device) == "mcc3"
+    if new:
+        mesh.check_command_mcc3(command)
+        key = _whole_key(device)
+        topic = mcc3.command_topic(key)     # what the history names: the node
+        keys = store.owner_keys(key)
+    else:
+        topic = _mesh_topic(command, device, only)
+        key = envelope.node_key(device["key"])
+    if route != "direct":
+        if path:
+            raise envelope.EnvelopeError("a path goes with the direct route only")
+        path_len, hops = 0, b""
+    elif path is None:
+        known = (device.get("relay_paths") or {}).get(relay["node"])
+        path_len, hops = (known["len"], bytes.fromhex(known["path"])) if known else (0, b"")
+    else:
+        path_len, hops = relay_path(path)
+    # one transmission each way, and only when the relay was told the node is its neighbour
+    flags = mcc3.FLAG_ZERO_HOP if new and route == "direct" and not path_len & 63 else 0
+    ttl = config.get("ttl_secs", envelope.DEFAULT_TTL_SECS)
+    relay_keys = store.owner_keys(relay_key)
+    relay_name, name = relay.get("name") or relay["node"], device.get("name") or device["node"]
+    how = ROUTE_TEXT[route] + (f", {_hops(path_len)}" if route == "direct" else "")
+    head = f"through relay {relay_name} ({how})"
+
+    def build(counter):
+        if new:
+            return mesh.build_mcc3(store.seed(), key, counter, command, keys=keys, ttl_secs=ttl, flags=flags)
+        return mesh.build(store.seed(), topic, counter, command, ttl_secs=ttl)
+
+    def seal(forward_counter, body):
+        return plane.forward_payload(relay_keys, relay_key, forward_counter, key, mcc3.ROUTES.index(route), body,
+                                     path_len=path_len, path=hops, ttl_secs=ttl)
+
+    if dry_run:
+        payload = seal(0, build(0))
+        return topic, payload, {}, [f"would send {head}", f"would publish to {mcc3.command_topic(relay_key)} "
+                                    f"(mcc3, a sealed forward)", payload, "not sent (dry run)"]
+    counter = store.next_counter(device["node"]) if new else int(time.time())
+    forward_counter = store.next_forward_counter(relay["node"])
+    payload = seal(forward_counter, build(counter))
+    node = device["node"]
+    hit = transport._fake(topic, command, counter, [node], script)
+    if hit is not None:
+        transport._wait(transport.FAKE_WAIT_SECS, lambda: False, lambda: list(hit), progress)
+        r = hit.get(node)
+        result = None if r is None else mesh.MeshResult(r.node, counter, r.code, command, r.reply, None)
+        got = {"status": mcc3.FORWARD_NO_ANSWER if r is None else mcc3.FORWARD_ANSWERED, "path_len": None,
+               "sent": mcc3.SENT_DIRECT if route == "direct" else mcc3.SENT_FLOOD, "snr": None}
+    else:
+        _topic, got = plane.forward(config, relay_key, relay_keys, payload, forward_counter,
+                                    wait_secs=wait_secs or max(config.get("wait_secs", 20), plane.FORWARD_WAIT_SECS),
+                                    progress=progress)
+        result = None
+        if got is not None and got["status"] == mcc3.FORWARD_ANSWERED:
+            result = (mesh.parse_mcc3(keys, got["response"], node, command, counter) if new else
+                      mesh.parse_response(got["response"], node, command, counter))
+    said = {"node": relay["node"], "name": relay_name, "route": route, "status": None, "sent": None, "snr": None}
+    if got is None:
+        line = (f"no answer from the relay {relay_name}: is it online, on lou-20 or later, and relaying "
+                f"(get mqtt.relay)?")
+    else:
+        status = got["status"]
+        said.update(status=mcc3.FORWARD_STATUSES[status] if status < len(mcc3.FORWARD_STATUSES) else f"unknown-{status}",
+                    sent={mcc3.SENT_DIRECT: "direct", mcc3.SENT_FLOOD: "flood"}.get(got["sent"]),
+                    snr=None if got["snr"] is None else got["snr"] / 4)
+        if got["path_len"] is not None:
+            store.remember_relay_path(node, relay["node"], got["path_len"], got["path"])
+        if result is not None:
+            line = outcome_line(result, device.get("ver"))
+        elif status == mcc3.FORWARD_ANSWERED:
+            line = "an answer came that does not open with this node's key; ignored"
+        elif status == mcc3.FORWARD_NO_ANSWER:
+            line = "no answer (not a refusal: the node may have run the command)"
+        elif status in mcc3.FORWARD_HELP:
+            line = f"not sent, the relay says {said['status']}: {mcc3.FORWARD_HELP[status]}"
+        else:
+            line = f"the relay says {said['status']}, which this version does not know"
+    store.record(node, command, topic, result, road=RELAY_ROAD, relay=said,
+                 note="" if result is not None else said["status"] or "the relay did not answer")
+    if result is not None and result.ok and commands.is_read(command):
+        store.remember_read(node, command, result.reply or "OK", result.verified)
+    heard = "" if said["snr"] is None else f", answer heard at {said['snr']:g} dB"
+    sent = f": sent {said['sent']}{heard}" if said["sent"] else ""
+    return topic, payload, {node: result} if result is not None else {}, [f"{head}{sent}", f"{name[:12]:12} {line}"]
 
 
 def _whole_key(device):
@@ -717,6 +891,7 @@ def _alive_record(fields, state, at):
         rec.update({k: fields[k] for k in ("boot", "sequence", "uptime", "clock", "last_counter", "interval",
                                            "flags", "mesh", "fingerprint", "version", "region", "name")})
         rec["old_scheme"] = bool(fields["flags"] & 1)
+        rec["relay"] = bool(fields["flags"] & mcc3.ALIVE_FLAG_RELAY)     # it relays for its owner
     return rec
 
 

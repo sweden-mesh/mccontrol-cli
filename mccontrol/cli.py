@@ -35,6 +35,13 @@ from .apiclient import ApiError, Client
 from .api.server import serve, stop
 
 
+def _road(text):
+    """`--via`: mqtt, mesh, auto, or relay:DEVICE."""
+    if text in ("mqtt", "mesh", "auto") or (text.startswith("relay:") and text[6:].strip()):
+        return text
+    raise argparse.ArgumentTypeError("mqtt, mesh, auto or relay:DEVICE")
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="mccontrol", description=__doc__.split("\n")[0])
     p.add_argument("--ui", metavar="NAME", help="the interface to start; the last one asked for when not given, else Monolith")
@@ -82,8 +89,14 @@ def build_parser():
                         "in random order, spaced 10-90 s (a restart 5-30 min)")
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
-    s.add_argument("--via", choices=("mqtt", "mesh", "auto"), default="mqtt",
-                   help="the road: mqtt (default); mesh, through your companion (one node, <= 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable")
+    s.add_argument("--via", type=_road, default="mqtt", metavar="{mqtt,mesh,auto,relay:DEVICE}",
+                   help="the road: mqtt (default); mesh, through your companion (one node, <= 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable; relay:DEVICE, a node of yours on MQTT (lou-20) sends it over the mesh and returns the answer (one node, the mesh road's rules, never chosen by auto)")
+    s.add_argument("--route", choices=("direct", "flood", "flood-wide"),
+                   help="with relay: direct (default; no hops, or the path the last answer taught), flood (the "
+                        "relay's region home; 2 an hour) or flood-wide (the relay's default scope)")
+    s.add_argument("--path", metavar="HEX",
+                   help="with relay and the direct route: the hops from the relay to the node, e.g. A1B2 "
+                        "(2:A1B2C3D4 for two-byte hashes); none for no hops")
     sub.add_parser("groups", help="list your device groups and their members")
     gp = sub.add_parser("group", help="make and change a device group, or send a command to every device in it")
     gp.add_argument("action", choices=("create", "delete", "add", "remove", "show", "send"))
@@ -360,9 +373,18 @@ def _send(api, args, command=None):
     via = getattr(args, "via", "mqtt")
     if via == "mesh" and device is None:
         raise ApiError("refused", "the mesh road goes to one node at a time; an area act goes over MQTT", 0)
+    through = {}
+    route, path = getattr(args, "route", None), getattr(args, "path", None)
+    if via.startswith("relay:"):
+        if device is None:
+            raise ApiError("refused", "a relay carries a command to one node at a time; an area goes over MQTT", 0)
+        through = {"relay": _device(api, via[6:].strip())["node"], "route": route, "path": path}
+        via = "relay"
+    elif route or path is not None:
+        raise ApiError("usage", "--route and --path go with --via relay:DEVICE", 0)
     job = _job(api, api.start_send(command, devices=[device["node"]] if device else None, region=region,
                                    county=county, dry_run=args.dry_run, confirm=True,
-                                   via=None if via == "mqtt" else via),
+                                   via=None if via == "mqtt" else via, **through),
                quiet=args.dry_run)
     if job is None:
         return 130
@@ -652,6 +674,12 @@ def _history(api, args):
     for line in api.history(_device(api, args.device)["node"], limit=args.limit)["history"]:
         out = (_signed(line["reply"], line["verified"]) if line["code"] == 0 else
                f"refused {line['code_name']}" if line["code"] is not None else "no answer")
+        relay = line.get("relay")
+        if relay:
+            if line["code"] is None and relay["status"] not in ("answered", "no-answer"):
+                out = f"not sent: relay {relay['status']}" if relay["status"] else "no answer from the relay"
+            snr = "" if relay["snr"] is None else f", {relay['snr']:g} dB"
+            out += f"  [{relay['name']}, {relay['route']}{', sent ' + relay['sent'] if relay['sent'] else ''}{snr}]"
         print(f"{line['at']}  {line.get('road', 'mqtt'):4} {line['command']:34} {out}")
     return 0
 

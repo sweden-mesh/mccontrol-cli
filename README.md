@@ -189,6 +189,7 @@ mccontrol commands [device]              # the command table; with a device, wha
 mccontrol history loutest                # a forged reply says BAD SIGNATURE, an unsigned one (unsigned)
 mccontrol group send canary ver          # each device of a group in turn; mccontrol groups lists them
 mccontrol send loutest ver --via mesh    # over LoRa through your companion; --via auto picks the road
+mccontrol send cabin ver --via relay:loutest   # loutest, on MQTT, sends it over LoRa and returns the answer
 mccontrol devices | add | remove | discover | key | keygen | config | test | help
 ```
 
@@ -246,7 +247,24 @@ floods once; the answer teaches the companion a path, and the next goes direct.
 `--via auto` takes the mesh for a mesh-only node, a command only the mesh admits, a node whose
 status Beacon (else its last MQTT answer) has not seen for `mesh_after_mins` (15), or a broker
 that cannot be reached; otherwise MQTT, and MQTT again after a `mesh-closed`. History records
-the road of every command (`mqtt` or `mesh`).
+the road of every command (`mqtt`, `mesh` or `relay`).
+
+### Through a relay (lou-20)
+
+A node of yours on MQTT can send the mesh request for you, so no companion is needed:
+`mccontrol send cabin ver --via relay:loutest`. The relay sends it direct with no hops, which is
+right when the node hears the relay itself. Further away, give the hops (`--path A1B2`, or
+`2:A1B2C3D4` for two-byte hashes) or flood once: `--route flood` stays in the relay's region home,
+`--route flood-wide` uses its default scope. An answer teaches the path; the next direct send
+through that relay uses it (`--path none` for no hops again).
+
+One node at a time, never an area or a group, and only what the mesh road admits (57 bytes to
+lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The relay must run lou-20
+or later and be on MQTT. It sends 10 commands an hour, 2 of them floods, one at a time, and waits
+two minutes for the answer. `no answer` is not a refusal: the node may have run the command. Any
+other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
+on by default: `set mqtt.relay off|own`, and `get mqtt.relay` shows what is left of the hour.
+History keeps the relay, the route and how well the relay heard the answer.
 
 A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a
 device's `mesh_only` flag) takes commands over the mesh alone, signed for
@@ -359,7 +377,9 @@ the next login signs its token for the name the broker accepts.
 For lou-20 and later, mcc3: a command is sealed to one node (X25519 from the node's key and yours,
 ChaCha20-Poly1305, signed inside by your key over the node's key, a counter, the expiry and
 the reply id), published on `mcc/cmd/<KEY>`; the result is sealed to you on `mcc/r/<RID>`, a reply
-id drawn per session; the alive message is `mcc/alive/<KEY>`, retained. The bytes and their
+id drawn per session; the alive message is `mcc/alive/<KEY>`, retained. A forward through a relay
+is sealed to the relay on its `mcc/cmd/<KEY>` and carries the mesh request, signed and sealed for
+the target; the relay's result comes back on the same reply id. The bytes and their
 vectors are in mccontrol-spec (`spec/vectors/mcc3-vectors.json`). What follows is the old
 scheme, for lou-19 and older.
 

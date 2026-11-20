@@ -2333,12 +2333,41 @@
      "alive": {
       "type": "object",
       "nullable": true,
-      "description": "the last alive message of this node that opened with your key: state, at, version, region (its region home), name, boot, sequence, last_counter, flags, old_scheme ..."
+      "description": "the last alive message of this node that opened with your key: state, at, version, region (its region home), name, boot, sequence, last_counter, flags, old_scheme, relay (it relays for its owner) ..."
      },
      "counter": {
       "type": "integer",
       "nullable": true,
       "description": "the last mcc3 counter sent to it"
+     },
+     "last_heard_relay": {
+      "type": "string",
+      "nullable": true,
+      "description": "when the node last answered through a relay"
+     },
+     "forward_counter": {
+      "type": "integer",
+      "description": "as a relay: the counter of the last forward sent through it"
+     },
+     "relay_paths": {
+      "type": "object",
+      "description": "per relay (its node id): the path from that relay to this node as its last answer taught it, {len, path, at}; the default for the next direct send through that relay",
+      "additionalProperties": {
+       "type": "object",
+       "properties": {
+        "len": {
+         "type": "integer",
+         "description": "MeshCore's path length byte"
+        },
+        "path": {
+         "type": "string",
+         "description": "hex"
+        },
+        "at": {
+         "type": "string"
+        }
+       }
+      }
      }
     },
     "example": {
@@ -2570,9 +2599,51 @@
       "type": "string",
       "enum": [
        "mqtt",
-       "mesh"
+       "mesh",
+       "relay"
       ],
       "description": "which road the command took; lines from before the mesh road are mqtt"
+     },
+     "relay": {
+      "type": "object",
+      "description": "only for road relay: what the relay said of its forward",
+      "properties": {
+       "node": {
+        "type": "string",
+        "description": "the relay's node id"
+       },
+       "name": {
+        "type": "string"
+       },
+       "route": {
+        "type": "string",
+        "enum": [
+         "direct",
+         "flood",
+         "flood-wide"
+        ]
+       },
+       "status": {
+        "type": "string",
+        "nullable": true,
+        "description": "answered, no-answer (not a refusal: the node may have run the command), off, expired, replay, bad-body, busy, rate-limited, clock-unset, send-failed; null when the relay itself said nothing"
+       },
+       "sent": {
+        "type": "string",
+        "nullable": true,
+        "enum": [
+         "direct",
+         "flood",
+         null
+        ],
+        "description": "how the relay sent it; null when it sent nothing"
+       },
+       "snr": {
+        "type": "number",
+        "nullable": true,
+        "description": "how the relay heard the answer, dB"
+       }
+      }
      }
     },
     "required": [
@@ -3599,10 +3670,29 @@
       "enum": [
        "mqtt",
        "mesh",
-       "auto"
+       "auto",
+       "relay"
       ],
       "default": "mqtt",
-      "description": "the road: mqtt (the default); mesh, through your companion (one node at a time, the command at most 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh for a mesh-only node, a command only the mesh admits, or a node not heard over MQTT for mesh_after_mins, else MQTT and the mesh if the broker cannot be reached, and MQTT again when the node answers mesh-closed"
+      "description": "the road: mqtt (the default); mesh, through your companion (one node at a time, the command at most 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh for a mesh-only node, a command only the mesh admits, or a node not heard over MQTT for mesh_after_mins, else MQTT and the mesh if the broker cannot be reached, and MQTT again when the node answers mesh-closed; relay, a node of yours on MQTT (relay) transmits the mesh-road request and returns the answer: exactly one device, the mesh road's rules, never chosen by auto"
+     },
+     "relay": {
+      "type": "string",
+      "description": "with via relay: the device that relays, by name or node id; it must be on MQTT and run lou-20 or later"
+     },
+     "route": {
+      "type": "string",
+      "enum": [
+       "direct",
+       "flood",
+       "flood-wide"
+      ],
+      "default": "direct",
+      "description": "with via relay: direct (along path), flood (in the relay's region home; a relay floods 2 an hour) or flood-wide (in the relay's default scope)"
+     },
+     "path": {
+      "type": "string",
+      "description": "with via relay and route direct: the hops from the relay to the node as hex of one-byte hashes (2:HEX or 3:HEX for longer ones), or none; left out, the path the last answer taught this relay, else no hops"
      },
      "county": {
       "type": "string",

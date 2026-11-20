@@ -60,6 +60,24 @@ Answers and silence
   reached; otherwise MQTT. A mesh-closed answer is sent again over MQTT.
   History says which road each command took.
 
+Through a relay
+  From lou-20 a node of yours on MQTT can send the request for you, so
+  you need no companion. It sends the same mesh request to the other
+  node and returns the answer over MQTT:
+    mccontrol send cabin ver --via relay:loutest
+  The relay sends it direct, with no hops. That is right when the node
+  hears the relay itself. For a node further away, give the hops
+  (--path A1B2) or flood once: --route flood stays in the relay's
+  region, --route flood-wide uses its default scope. An answer teaches
+  the path, and the next direct send through that relay uses it.
+  One node at a time, and only what the mesh road admits. You name
+  the relay; auto never picks one. A relay sends 10 commands an hour,
+  2 of them floods, one at a time, and waits two minutes for the
+  answer. "no answer" is not a refusal: the node may have run the
+  command. Relaying is on by default. Switch it with
+  "set mqtt.relay off" or "set mqtt.relay own"; "get mqtt.relay"
+  shows what is left of the hour.
+
 Mesh-only nodes
   A node built without Wi-Fi (an rc image with no -observer in its
   version) takes commands over the mesh alone. Its commands are signed

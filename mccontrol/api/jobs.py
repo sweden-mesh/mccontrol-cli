@@ -12,7 +12,7 @@ import itertools
 import threading
 import uuid
 
-from .. import actions, beacon, denylist, envelope, firmware, mesh, store as _store, transport
+from .. import actions, beacon, denylist, envelope, firmware, mcc3, mesh, store as _store, transport
 from .errors import ApiError, bad, classify, not_found
 from .routes import device_of, devices_of
 
@@ -204,20 +204,24 @@ def _wait(body):
 
 
 def _via(body, devices=None, area=None):
-    """The road asked for: mqtt (the default), mesh or auto. The mesh goes to one node at a
-    time, so never to an area (its airtime)."""
+    """The road asked for: mqtt (the default), mesh, auto or relay. The mesh goes to one node
+    at a time, so never to an area (its airtime); a relay to exactly one device, named."""
     via = body.get("via", "mqtt")
+    if via == actions.RELAY_ROAD:
+        if area or body.get("group") or body.get("tagged") or len(devices or ()) != 1:
+            raise ApiError(400, "refused", actions.RELAY_ONE_NODE)
+        return via
     if via not in actions.ROADS:
-        raise bad(f"via is one of {', '.join(actions.ROADS)}")
+        raise bad(f"via is one of {', '.join(actions.ROADS)}, {actions.RELAY_ROAD}")
     if via == "mesh" and area:
         raise ApiError(400, "refused", "the mesh road goes to one node at a time; an area act goes over MQTT")
     return via
 
 
 def _refusal(command, via, devices):
-    """Why every road `via` may take would refuse `command`, or None. Over the mesh the repair
-    allowance travels and a mesh-only node refuses what needs an uplink; auto refuses only
-    what both roads refuse."""
+    """Why every road `via` may take would refuse `command`, or None. Over the mesh (through
+    your companion or a relay) the repair allowance travels and a mesh-only node refuses what
+    needs an uplink; auto refuses only what both roads refuse."""
     if via == "mqtt" or not devices:
         return denylist.refusal(command)
     for d in devices:
@@ -225,7 +229,7 @@ def _refusal(command, via, devices):
         on_mesh = denylist.mesh_refusal(command, mesh_only=only)
         if on_mesh is None and len(command.encode("utf-8")) > mesh.MAX_COMMAND:
             on_mesh = f"over the mesh a command is 1..{mesh.MAX_COMMAND} bytes"
-        why = on_mesh if via == "mesh" or only else (on_mesh and denylist.refusal(command))
+        why = on_mesh if via in ("mesh", actions.RELAY_ROAD) or only else (on_mesh and denylist.refusal(command))
         if why:
             return why
     return None
@@ -246,6 +250,34 @@ def _vet(ctx, commands_, area, body, devices=None, via="mqtt"):
     ctx.store.seed()                    # no key, or a readable one, is a StoreError now
 
 
+def _relay(ctx, body, via, devices):
+    """`{relay, route, path}` for a send through a relay, checked before anything is signed;
+    empty for every other road, which takes none of them."""
+    given = [k for k in ("relay", "route", "path") if body.get(k) is not None]
+    if via != actions.RELAY_ROAD:
+        if given:
+            raise bad(f"{', '.join(given)} goes with via: relay")
+        return {}
+    if any(not isinstance(body[k], str) for k in given):
+        raise bad("relay, route and path are strings")
+    if not body.get("relay"):
+        raise bad("via relay needs relay: a device of yours on MQTT")
+    relay = device_of(ctx, body["relay"])
+    route = body.get("route") or "direct"
+    why = (actions.relay_refusal(relay) if route in mcc3.ROUTES else
+           f"the route is one of {', '.join(mcc3.ROUTES)}")
+    if not why and relay["node"] == devices[0]["node"]:
+        why = "a node cannot relay to itself; send it over MQTT"
+    if why:
+        raise ApiError(400, "refused", why)
+    try:
+        if body.get("path") is not None:
+            actions.relay_path(body["path"])
+    except envelope.EnvelopeError as exc:
+        raise bad(str(exc)) from None
+    return {"relay": relay, "route": route, "path": body.get("path")}
+
+
 # -- the verbs ---------------------------------------------------------------------------
 
 def start_send(ctx, _p, _q, body):
@@ -254,6 +286,7 @@ def start_send(ctx, _p, _q, body):
         raise bad("command is required")
     devices, area = _targets(ctx, body)
     via = _via(body, devices, area)
+    through = _relay(ctx, body, via, devices)
     _vet(ctx, [command], area, body, devices, via)
     dry, wait = bool(body.get("dry_run")), _wait(body)
     group = body.get("group")
@@ -277,7 +310,8 @@ def start_send(ctx, _p, _q, body):
             text = lambda _n, a=answered, label=label, i=i: f"{a} of {len(devices)} answered; waiting for {label} ({i + 1} of {len(devices)})"
             try:
                 topic, _pl, answers, l = actions.send(store, command, device=d, dry_run=dry, wait_secs=wait,
-                                                      progress=ticker(job, text), script=ctx.script, via=via)
+                                                      progress=ticker(job, text), script=ctx.script, via=via,
+                                                      **through)
             except (envelope.EnvelopeError, mesh.MeshError) as exc:
                 if not group and not area:
                     raise

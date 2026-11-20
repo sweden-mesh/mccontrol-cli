@@ -383,6 +383,27 @@ class Store:
         self.update_device(node, counter=counter)
         return counter
 
+    def next_forward_counter(self, relay_node, now=None):
+        """The counter for the next forward through a relay, stored before it is sent:
+        `max(now, last + 1)`. Its own count per relay, apart from the relay's command counter."""
+        import time
+        d = next((e for e in self.devices() if e["node"] == relay_node), None)
+        if d is None:
+            raise StoreError("no such device")
+        counter = max(int(time.time() if now is None else now), int(d.get("forward_counter") or 0) + 1)
+        self.update_device(relay_node, forward_counter=counter)
+        return counter
+
+    def remember_relay_path(self, node, relay_node, path_len, path):
+        """The path from a relay to the node, as an answer taught the relay: the default for
+        the next direct forward to this node through that relay."""
+        d = next((e for e in self.devices() if e["node"] == node), None)
+        if d is None:
+            raise StoreError("no such device")
+        paths = dict(d.get("relay_paths") or {})
+        paths[relay_node] = {"len": path_len, "path": bytes(path).hex().upper(), "at": _now()}
+        return self.update_device(node, relay_paths=paths)
+
     # -- mcc3: the shared secret with each node (IATA-2) --------------------------------
 
     def _ecdh_path(self):
@@ -400,7 +421,7 @@ class Store:
         self._write_private(path, json.dumps(cache, indent=0, sort_keys=True) + "\n")
 
     def owner_keys(self, key_hex, cache=None):
-        """K_cmd, K_mesh and K_alive for the node with `key_hex`, from the cached S when there
+        """K_cmd, K_mesh, K_alive and K_fwd for the node with `key_hex`, from the cached S when there
         is one; a new S is computed and stored."""
         key = envelope.node_key(key_hex or "")
         own = cache if cache is not None else self.ecdh_cache()
@@ -481,14 +502,17 @@ class Store:
         return [(k, v["reply"], v["at"]) for k, v in
                 sorted(reads.items(), key=lambda kv: (kv[1]["at"], kv[1].get("seq", 0)), reverse=True)]
 
-    def record(self, node, command, topic, result, note="", road="mqtt"):
-        """One line per command sent: what, where, by which road (`mqtt` or `mesh`), and what
-        came back (or nothing)."""
+    def record(self, node, command, topic, result, note="", road="mqtt", relay=None):
+        """One line per command sent: what, where, by which road (`mqtt`, `mesh` or `relay`),
+        and what came back (or nothing). `relay` is what a relay said of its forward:
+        `{node, name, route, status, sent, snr}`."""
         line = {"at": _now(), "command": command, "topic": topic, "road": road,
                 "code": None if result is None else result.code,
                 "code_name": None if result is None else result.code_name,
                 "reply": None if result is None else result.reply,
                 "verified": None if result is None else result.verified, "note": note}
+        if relay:
+            line["relay"] = relay
         path = self.root / "history" / f"{node or 'all'}.jsonl"
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(line) + "\n")

@@ -8,6 +8,9 @@ Whether the node signed the reply is kept too: a reply whose signature
 failed is shown as "BAD SIGNATURE <reply>" and teaches nothing; one from
 firmware that does not sign (older than ar-11) is shown "(unsigned)".
 
+A command sent through a relay is kept with the relay, the route, how it
+was sent and how well the relay heard the answer.
+
 A send to a region is kept once per device, each with its own line, and
 once for the region with how many answered.
 

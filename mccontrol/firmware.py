@@ -52,6 +52,7 @@ ADMITTED = (
     ("ar-13", 13, None),
     ("lou-14", 14, None),
     ("lou-19", 19, None),
+    ("lou-20", 20, None),
 )
 
 FEATURE_TOKENS = ("as", "ar", "rc", "asar", "asrc", "arrc", "asarrc")
@@ -61,7 +62,8 @@ FEATURES_BEFORE_LOU = "arrc"
 AUTOREPLY_FAMILIES = ("trigger", "set autoreply", "get autoreply")
 
 # Commands the deny list admits that arrived after ar-11: the revision that admits each.
-ARRIVED = {"mqtt.cmd ping": 12, "ota update": 19}
+ARRIVED = {"mqtt.cmd ping": 12, "ota update": 19,
+           "get mqtt.relay": 20, "set mqtt.relay off": 20, "set mqtt.relay own": 20}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13
@@ -77,6 +79,10 @@ MESH_FROM = 19
 # (IATA-2): `mcc/cmd/<KEY>`, alive messages, the mesh road's 0xC2. lou-20 also keeps the old
 # per-node IATA scheme; lou-19 and older speak only that.
 MCC3_FROM = 20
+
+# The first revision whose Observer image relays: it transmits its owner's mesh-road request
+# to another node and returns the answer over MQTT (`set mqtt.relay off|own`).
+RELAY_FROM = 20
 
 
 def revision(version_text):
@@ -202,6 +208,13 @@ def speaks_mcc3(version_text):
     """Does a node on `version_text` take mcc3 (lou-20 and later)? Unknown: no."""
     rev = revision(version_text)
     return rev is not None and rev >= MCC3_FROM
+
+
+def relays(version_text):
+    """Can a node on `version_text` carry a mesh-road request for its owner (lou-20 and later,
+    an image on MQTT)? Unknown: no."""
+    rev = revision(version_text)
+    return rev is not None and rev >= RELAY_FROM and not mesh_only(version_text)
 
 
 def admits_utf8(version_text):

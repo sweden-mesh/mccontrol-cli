@@ -286,16 +286,19 @@ def check_command_mcc3(command):
                                      f"bytes; this one is {size}")
 
 
-def build_mcc3(seed_hex, key_hex, counter, command, keys=None, ttl_secs=envelope.DEFAULT_TTL_SECS, now=None):
+def build_mcc3(seed_hex, key_hex, counter, command, keys=None, ttl_secs=envelope.DEFAULT_TTL_SECS, now=None,
+               flags=0):
     """The 132 bytes the app gives `CMD_SEND_ANON_REQ` after the node's key (the companion
-    writes the 4-byte tag in front): sub-type 0xC2, sealed under K_mesh, signed for road 0x01."""
+    writes the 4-byte tag in front): sub-type 0xC2, sealed under K_mesh, signed for road 0x01.
+    `flags` stays 0 through a companion; a relay's neighbour may be asked for a zero-hop answer."""
     from . import mcc3
     check_command_mcc3(command)
     now = int(time.time() if now is None else now)
     if not 0 < ttl_secs <= envelope.MAX_FUTURE_SECS:
         raise envelope.EnvelopeError(f"ttl is 1..{envelope.MAX_FUTURE_SECS} seconds")
     try:
-        request_ = mcc3.seal_mesh_request(seed_hex, key_hex, counter, now + ttl_secs, command, keys=keys)
+        request_ = mcc3.seal_mesh_request(seed_hex, key_hex, counter, now + ttl_secs, command, keys=keys,
+                                          flags=flags)
     except mcc3.Mcc3Error as exc:
         raise envelope.EnvelopeError(str(exc)) from None
     return request_[4:]
