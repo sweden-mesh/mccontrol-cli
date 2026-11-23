@@ -53,6 +53,7 @@ MESH_COMMAND_FIELD = 58            # zero-padded, always ends in at least one ze
 MESH_MAX_COMMAND = 57
 MESH_HEADER = 10                   # companion tag 4, sub-type 1, flags 1, counter 4
 MESH_MAX_REPLY = 125
+MESH_BLOCK = 16                    # the mesh hands a datagram over zero-filled to this many bytes
 
 # A forward through a relay (mcc/cmd/<RELAY KEY>) and its result (mcc/r/<RID>), sealed under K_fwd.
 ROUTE_DIRECT, ROUTE_FLOOD, ROUTE_FLOOD_WIDE = 0, 1, 2
@@ -428,17 +429,26 @@ def seal_mesh_response(keys, companion_tag, counter, code, clock, reply, nonce=N
 
 
 def open_mesh_response(keys, response):
-    """`{tag, counter, code, clock, reply}`, or Refused."""
+    """`{tag, counter, code, clock, reply}`, or Refused. MeshCore carries a datagram in whole
+    16-byte cipher blocks and hands it over zero-filled to the block edge, so up to 15 zero
+    bytes may follow the response's tag: each shorter length is tried, and the tag says
+    which one is the response."""
     if len(response) < 4 + 1 + NONCE_LEN + 9 + TAG_LEN or response[4] != KIND_RESULT:
         raise Refused("bad-fields")
-    header, body, tag = response[4:17], response[17:-TAG_LEN], response[-TAG_LEN:]
-    try:
-        plain = _aead(keys["cmd"], header[1:], header).decrypt_and_verify(body, tag)
-    except ValueError:
-        raise Refused("sig-invalid") from None
-    counter, code, clock = struct.unpack_from("<IBI", plain, 0)
-    return {"tag": struct.unpack_from("<I", response, 0)[0], "counter": counter, "code": code,
-            "clock": clock, "reply": plain[9:].decode("utf-8", "replace")}
+    data = bytes(response)
+    for _ in range(MESH_BLOCK):
+        header, body, tag = data[4:17], data[17:-TAG_LEN], data[-TAG_LEN:]
+        try:
+            plain = _aead(keys["cmd"], header[1:], header).decrypt_and_verify(body, tag)
+        except ValueError:
+            if data[-1] or len(data) - 1 < 4 + 1 + NONCE_LEN + 9 + TAG_LEN:
+                break
+            data = data[:-1]
+            continue
+        counter, code, clock = struct.unpack_from("<IBI", plain, 0)
+        return {"tag": struct.unpack_from("<I", response, 0)[0], "counter": counter, "code": code,
+                "clock": clock, "reply": plain[9:].decode("utf-8", "replace")}
+    raise Refused("sig-invalid")
 
 
 # -- a forward through a relay (mcc/cmd/<RELAY KEY>) and its result (mcc/r/<RID>) ------------

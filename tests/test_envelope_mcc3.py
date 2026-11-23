@@ -352,3 +352,23 @@ def test_forward_result_with_an_impossible_length_is_refused(offset, value):
     with pytest.raises(mcc3.Refused) as exc:
         mcc3.open_forward_result(K, mcc3.b64(header + sealed + tag))
     assert exc.value.outcome == "bad-fields"
+
+
+@pytest.mark.parametrize("fill", range(16))
+def test_mesh_response_with_the_mesh_zero_fill(fill):
+    """MeshCore hands a datagram over zero-filled to the 16-byte block edge (bench 2026-11-23:
+    a 55-byte response arrived as 60), so the opener finds the length by the tag."""
+    v = V["mesh_responses"][0]
+    resp = mcc3.seal_mesh_response(K, v["companion_tag"], v["counter"], v["code"], v["clock"], v["reply"],
+                                   nonce=bytes.fromhex(v["nonce"]))
+    assert mcc3.open_mesh_response(K, resp + bytes(fill))["reply"] == v["reply"]
+
+
+def test_mesh_response_zero_fill_does_not_open_an_altered_one():
+    v = V["mesh_responses"][0]
+    resp = bytearray(mcc3.seal_mesh_response(K, v["companion_tag"], v["counter"], v["code"], v["clock"], v["reply"]))
+    resp[20] ^= 1
+    with pytest.raises(mcc3.Refused):
+        mcc3.open_mesh_response(K, bytes(resp) + bytes(5))
+    with pytest.raises(mcc3.Refused):
+        mcc3.open_mesh_response(K, bytes(resp[:-1]) + b"\x01")
