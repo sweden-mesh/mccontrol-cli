@@ -73,7 +73,8 @@ FORWARD_ANSWERED, FORWARD_NO_ANSWER = 0, 1
 FORWARD_HELP = {
     0: "The relay sent the command and the node answered.",
     1: "The relay sent the command and heard no answer in two minutes. This is not a refusal: the node may "
-       "have run it.",
+       "have run it. If a direct send stays unanswered, send once as a flood: its answer renews the path "
+       "both ways.",
     2: "Relaying is switched off on the relay. Send it: set mqtt.relay own",
     3: "The relay got the request too late, or its clock and yours disagree. Nothing was sent.",
     4: "The relay has already seen a newer request. Nothing was sent. Send again.",
@@ -87,7 +88,8 @@ FORWARD_HELP = {
 FORWARD_HELP_SV = {
     0: "Reläet skickade kommandot och noden svarade.",
     1: "Reläet skickade kommandot och hörde inget svar på två minuter. Det är ingen vägran: noden kan ha "
-       "kört det.",
+       "kört det. Om en direktsändning förblir obesvarad, skicka en gång som flood: svaret förnyar vägen åt "
+       "båda håll.",
     2: "Reläfunktionen är avstängd på reläet. Skicka: set mqtt.relay own",
     3: "Begäran kom för sent till reläet, eller så går dess klocka och din olika. Inget skickades.",
     4: "Reläet har redan sett en nyare begäran. Inget skickades. Skicka igen.",

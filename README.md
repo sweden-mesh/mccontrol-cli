@@ -260,10 +260,10 @@ through that relay uses it (`--path none` for no hops again).
 
 One node at a time, never an area or a group, and only what the mesh road admits (57 bytes to
 lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The relay must run lou-20
-or later and be on MQTT. It sends 10 commands an hour, 2 of them floods, one at a time, and waits
-two minutes for the answer. `no answer` is not a refusal: the node may have run the command. Any
+or later and be on MQTT. It sends one command at a time within an airtime budget (about 26 in 15
+minutes, then 5 in the next 15; a flood at most once a minute) and waits two minutes for the answer. `no answer` is not a refusal: the node may have run the command. Any
 other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
-on by default: `set mqtt.relay off|own`, and `get mqtt.relay` shows what is left of the hour.
+on by default: `set mqtt.relay off|own`, and `get mqtt.relay` shows what is left of the budget.
 History keeps the relay, the route and how well the relay heard the answer.
 
 A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a

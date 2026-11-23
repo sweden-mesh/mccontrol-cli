@@ -117,7 +117,8 @@ def parse_response(data, node=None, command="", counter=None):
     clock, got = struct.unpack("<II", data[:8])
     if counter is not None and got != counter:
         return None
-    return MeshResult(node, got, data[8], command, _text(data[9:]),
+    # the mesh hands a datagram over zero-filled to its 16-byte block edge
+    return MeshResult(node, got, data[8], command, _text(data[9:].rstrip(b"\0")),
                       clock if clock >= CLOCK_SET_FROM else None)
 
 

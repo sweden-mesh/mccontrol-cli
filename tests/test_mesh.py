@@ -60,6 +60,8 @@ def test_the_response_parses_as_the_document_shows_and_a_cut_character_is_droppe
     assert (r.ok, r.code, r.reply, r.counter, r.clock, r.verified) == (True, 0, "OK", 7, None, True)
     assert mesh.parse_response(data, counter=8) is None                       # another counter: not ours
     assert mesh.parse_response(data[:8]) is None                              # too short
+    # the mesh hands a datagram over zero-filled to its 16-byte block edge (bench 2026-11-23)
+    assert mesh.parse_response(data + bytes(7), counter=7).reply == r.reply
     closed = mesh.parse_response(mesh.response(1795000000, 7, 19), counter=7)
     assert (closed.code, closed.code_name, closed.clock) == (19, "mesh-closed", 1795000000)
     assert "MQTT" in closed.help

@@ -90,10 +90,11 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
     s.add_argument("--via", type=_road, default="mqtt", metavar="{mqtt,mesh,auto,relay:DEVICE}",
-                   help="the road: mqtt (default); mesh, through your companion (one node, <= 59 bytes, the Wi-Fi and command-slot repair admitted); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable; relay:DEVICE, a node of yours on MQTT (lou-20) sends it over the mesh and returns the answer (one node, the mesh road's rules, never chosen by auto)")
+                   help="the road: mqtt (default); mesh, through your companion (one node, <= 57 bytes to lou-20 and 59 to lou-19, the Wi-Fi and command-slot repair admitted; the answer to a flooded send takes up to a minute); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable; relay:DEVICE, a node of yours on MQTT (lou-20) sends it over the mesh and returns the answer (one node, the mesh road's rules, never chosen by auto)")
     s.add_argument("--route", choices=("direct", "flood", "flood-wide"),
                    help="with relay: direct (default; no hops, or the path the last answer taught), flood (the "
-                        "relay's region home; 2 an hour) or flood-wide (the relay's default scope)")
+                        "relay's region home; one a minute for 15 minutes, then one in five) or flood-wide (the relay's "
+                        "default scope; 2 an hour)")
     s.add_argument("--path", metavar="HEX",
                    help="with relay and the direct route: the hops from the relay to the node, e.g. A1B2 "
                         "(2:A1B2C3D4 for two-byte hashes); none for no hops")

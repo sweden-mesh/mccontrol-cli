@@ -119,7 +119,7 @@ def data():
         "firmware.json": {
             "_source": _source("mccontrol/firmware.py"),
             "revision_tags": ["-lou-", "-ar-"],
-            "lou_features_pattern": r"-lou-\d+-([a-z]+)-",
+            "lou_features_pattern": firmware.LOU_FEATURES.pattern,
             "admitted": [{"tag": t, "number": n, "admitted": list(a) if a is not None else None}
                          for t, n, a in firmware.ADMITTED],
             "ar10_families": list(firmware.AR10_FAMILIES),

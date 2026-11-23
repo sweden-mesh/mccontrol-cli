@@ -133,7 +133,7 @@ def test_a_command_goes_to_the_relays_topic_and_the_targets_answer_opens(store, 
     assert (req["command"], req["flags"], req["counter"]) == ("set name Cabin", 2, store.device("cabin")["counter"])
     r = answers[TARGET[:8]]
     assert (r.ok, r.reply, r.verified, r.clock) == (True, "OK", True, 1795000000)
-    assert lines == ["through relay Bench (direct, no hops): sent direct, answer heard at 5.5 dB",
+    assert lines == ["through relay Bench (direct, no hops: only a node the relay hears itself): sent direct, answer heard at 5.5 dB",
                      "Cabin        OK [signed]"]
     assert topic == f"mcc/cmd/{TARGET}"
     h = store.history(TARGET[:8])[-1]
@@ -173,7 +173,7 @@ def test_a_taught_path_is_kept_per_relay_and_is_the_next_direct_default(store, r
     f = relay.forwards[1]
     assert (f["route"], f["path_len"], f["path"]) == (0, 2, bytes.fromhex("A1B2"))
     assert f["body"][1] == 0                                            # hops between: no zero-hop answer
-    assert lines[0].startswith("through relay Bench (direct, 2 hop(s))")
+    assert lines[0].startswith("through relay Bench (direct, 2 hop(s) via A1>B2)")
     # a path as typed wins; none is no hops again, and the flag is back
     through(store, path="2:0102A1B2")
     assert (relay.forwards[2]["path_len"], relay.forwards[2]["path"]) == (0x42, bytes.fromhex("0102A1B2"))
@@ -215,7 +215,7 @@ def test_no_answer_reads_as_no_answer_never_as_refused(store, relay):
     relay.status = mcc3.FORWARD_NO_ANSWER
     _t, _p, answers, lines = through(store)
     assert answers == {} and "refused" not in " ".join(lines)
-    assert lines == ["through relay Bench (direct, no hops): sent direct",
+    assert lines == ["through relay Bench (direct, no hops: only a node the relay hears itself): sent direct",
                      "Cabin        no answer (not a refusal: the node may have run the command)"]
     h = store.history(TARGET[:8])[-1]
     assert (h["code"], h["note"], h["relay"]["status"], h["relay"]["snr"]) == (None, "no-answer", "no-answer", None)
@@ -227,7 +227,7 @@ def test_a_relays_own_status_is_shown_by_name(store, relay, status):
     relay.status = status
     name = mcc3.FORWARD_STATUSES[status]
     _t, _p, answers, lines = through(store)
-    assert answers == {} and lines[0] == "through relay Bench (direct, no hops)"
+    assert answers == {} and lines[0] == "through relay Bench (direct, no hops: only a node the relay hears itself)"
     assert lines[1].startswith(f"Cabin        not sent, the relay says {name}: ")
     assert mcc3.FORWARD_HELP[status] in lines[1] and "refused: " not in lines[1]
     assert store.history(TARGET[:8])[-1]["relay"]["status"] == name
@@ -339,7 +339,7 @@ def test_no_area_and_no_automatic_choice_goes_through_a_relay(store, nothing_sig
 def test_a_dry_run_seals_and_sends_nothing(store, relay):
     topic, payload, answers, lines = through(store, dry_run=True)
     assert answers == {} and lines[-1] == "not sent (dry run)" and relay.published == []
-    assert lines[0] == "would send through relay Bench (direct, no hops)" and RELAY in lines[1]
+    assert lines[0] == "would send through relay Bench (direct, no hops: only a node the relay hears itself)" and RELAY in lines[1]
     assert mcc3.open_forward(RELAY_SEED, OWNER, payload)["target"] == TARGET
     assert store.device("bench").get("forward_counter") is None and store.history(TARGET[:8]) == []
 
@@ -401,7 +401,7 @@ def home(tmp_path, monkeypatch, relay):
 
 def test_the_command_line_takes_a_relay_a_route_and_a_path(home, relay, capsys):
     assert cli.main(["send", "cabin", "get", "name", "--via", "relay:bench"]) == 0
-    assert "through relay Bench (direct, no hops): sent direct" in capsys.readouterr().out
+    assert "through relay Bench (direct, no hops: only a node the relay hears itself): sent direct" in capsys.readouterr().out
     assert cli.main(["send", "cabin", "ver", "--via", "relay:bench", "--route", "flood"]) == 0
     assert "flood in the relay's region" in capsys.readouterr().out
     assert cli.main(["send", "cabin", "ver", "--via", f"relay:{RELAY[:8]}", "--path", "A1B2"]) == 0

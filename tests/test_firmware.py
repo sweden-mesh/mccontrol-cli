@@ -84,3 +84,15 @@ def test_utf8_in_a_command_arrives_with_lou_17_and_an_unknown_version_is_ascii_o
     assert not firmware.admits_utf8("esp32s3-v1.18.0-lou-16-arrc-observer-7f153bc")
     assert not firmware.admits_utf8("esp32s3-v1.17.0-ar-10-observer-8530d4bb")
     assert not firmware.admits_utf8(None)
+
+
+def test_a_release_candidates_revision_is_not_the_feature_rc():
+    """`lou-20rc` (operator 2026-11-23): revision 20, and the features are the token after it."""
+    arrc = "esp32s3-v1.18.0-lou-20rc-arrc-observer-1d365aba"
+    assert firmware.revision(arrc) == 20 and firmware.features(arrc) == "arrc"
+    assert firmware.speaks_mcc3(arrc) and firmware.relays(arrc) and not firmware.mesh_only(arrc)
+    only_ar = "nrf52840-v1.18.0-lou-20rc-ar-a8ab24d0"
+    assert firmware.features(only_ar) == "ar" and not firmware.has(only_ar, "rc")
+    second = "nrf52840-v1.18.0-lou-20rc2-rc-a8ab24d0"
+    assert firmware.revision(second) == 20 and firmware.features(second) == "rc" and firmware.mesh_only(second)
+    assert firmware.features("nrf52840-v1.18.0-lou-20-rc-9ccbb597") == "rc"      # the release, as before

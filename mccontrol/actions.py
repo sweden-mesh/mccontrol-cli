@@ -307,8 +307,8 @@ def send_mesh(store, command, device, dry_run=False, wait_secs=None, progress=No
         return topic, body.hex().upper(), {}, [f"would send {head} through {spec or 'your companion (none set)'}",
                                                f"signed for {topic}", body.hex().upper(), "not sent (dry run)"]
     mesh.parse_spec(spec)                   # no companion set: said now, before signing
-    wait = wait_secs or config.get("wait_secs", 20)
-    counter = int(time.time())
+    wait = wait_secs or max(config.get("wait_secs", 20), mesh.MESH_WAIT_SECS)
+    counter = store.next_counter(device["node"])
     faked = transport._fake(topic, command, counter, [device["node"]], script)
     if faked is not None:
         transport._wait(transport.FAKE_WAIT_SECS, lambda: False, lambda: list(faked), progress)
@@ -435,8 +435,14 @@ def relay_path(text):
     return path_len, path
 
 
-def _hops(path_len):
-    return "no hops" if not path_len & 63 else f"{path_len & 63} hop(s)"
+def _hops(path_len, path=b""):
+    """`no hops` says who can be reached that way; a path is shown, so that the one a flood's
+    answer taught can be told from the one that worked before."""
+    if not path_len & 63:
+        return "no hops: only a node the relay hears itself"
+    size = (path_len >> 6) + 1
+    hops = ">".join(path[i:i + size].hex().upper() for i in range(0, len(path), size))
+    return f"{path_len & 63} hop(s) via {hops}" if hops else f"{path_len & 63} hop(s)"
 
 
 def send_relay(store, command, device, relay, route="direct", path=None, dry_run=False, wait_secs=None,
@@ -484,7 +490,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     ttl = config.get("ttl_secs", envelope.DEFAULT_TTL_SECS)
     relay_keys = store.owner_keys(relay_key)
     relay_name, name = relay.get("name") or relay["node"], device.get("name") or device["node"]
-    how = ROUTE_TEXT[route] + (f", {_hops(path_len)}" if route == "direct" else "")
+    how = ROUTE_TEXT[route] + (f", {_hops(path_len, hops)}" if route == "direct" else "")
     head = f"through relay {relay_name} ({how})"
 
     def build(counter):
@@ -500,7 +506,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
         payload = seal(0, build(0))
         return topic, payload, {}, [f"would send {head}", f"would publish to {mcc3.command_topic(relay_key)} "
                                     f"(mcc3, a sealed forward)", payload, "not sent (dry run)"]
-    counter = store.next_counter(device["node"]) if new else int(time.time())
+    counter = store.next_counter(device["node"])
     forward_counter = store.next_forward_counter(relay["node"])
     payload = seal(forward_counter, build(counter))
     node = device["node"]

@@ -85,6 +85,11 @@ MCC3_FROM = 20
 RELAY_FROM = 20
 
 
+# The features follow the revision as a token of their own. A release candidate's revision
+# ends in `rc` or `rcN` (`-lou-20rc-arrc-`), which is not the feature `rc`.
+LOU_FEATURES = re.compile(r"-lou-\d+(?:rc\d*)?-([a-z]+)-")
+
+
 def revision(version_text):
     """The revision in a version string, or None: `-lou-N-` first, then `-ar-N-`.
 
@@ -105,7 +110,7 @@ def features(version_text):
     names none and had both: `arrc`. A lou version whose token is not a combination in the
     fixed order is not trusted with any: ``""``."""
     text = (version_text or "").lower()
-    m = re.search(r"-lou-\d+-([a-z]+)-", text)
+    m = LOU_FEATURES.search(text)
     if m is None:
         return "" if "-lou-" in text else FEATURES_BEFORE_LOU
     return m.group(1) if m.group(1) in FEATURE_TOKENS else ""

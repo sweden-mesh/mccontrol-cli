@@ -72,12 +72,14 @@ Through a relay
   the path, and the next direct send through that relay uses it.
   One node at a time, and only what the mesh road admits. Here you
   name the relay. The web app's auto may take one that hears the node
-  directly, never a flood. A relay sends 10 commands an hour,
-  2 of them floods, one at a time, and waits two minutes for the
-  answer. "no answer" is not a refusal: the node may have run the
+  directly, never a flood. A relay sends one command at a time
+  within an airtime budget (about 26 in 15 minutes, then 5 in the
+  next 15; a flood at most once a minute) and waits two minutes for
+  the answer. A node answers a flooded command 15 to 30 seconds
+  after it arrives. "no answer" is not a refusal: the node may have run the
   command. Relaying is on by default. Switch it with
   "set mqtt.relay off" or "set mqtt.relay own"; "get mqtt.relay"
-  shows what is left of the hour.
+  shows what is left of the budget.
 
 Mesh-only nodes
   A node built without Wi-Fi (an rc image with no -observer in its
