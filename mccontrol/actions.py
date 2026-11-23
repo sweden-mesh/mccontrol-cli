@@ -372,7 +372,7 @@ def _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress
                                                f"sealed for {key[:8]} (mcc3, 0xC2)", body.hex().upper(),
                                                "not sent (dry run)"]
     mesh.parse_spec(spec)
-    wait = wait_secs or config.get("wait_secs", 20)
+    wait = wait_secs or max(config.get("wait_secs", 20), mesh.MESH_WAIT_SECS)
     counter = store.next_counter(device["node"])
     hit = transport._fake(topic, command, counter, [device["node"]], script)
     if hit is not None:

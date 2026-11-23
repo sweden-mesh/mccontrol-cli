@@ -222,6 +222,10 @@ def open_companion(spec):
 
 
 TICK_SECS = 0.2
+# A lou-20 node answers a flooded request 15-30 s after it arrives, once the request's copies
+# have died down around it, and the flood travels both ways: a shorter wait reads a command
+# that ran as silence (bench at Gisebo, 2026-11-23: answered in 27 s, missed at 30).
+MESH_WAIT_SECS = 90.0
 
 
 async def _send(companion, key_hex, name, body, counter, command, wait_secs, progress, node, parse=None):
