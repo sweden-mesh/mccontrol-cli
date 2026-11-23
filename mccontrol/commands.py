@@ -57,6 +57,7 @@ TABLE = (
     _c("memory", "reads", read=True),
     _c("clock", "reads", read=True),
     _c("ota check", "reads", read=True),
+    _c("get sensors", "reads", read=True),
     _c("get", "reads", "text", examples=("get autoreply.hops", "get mqtt1.server", "get path.hash.mode"), read=True),
     # auto-reply
     _c("set autoreply", "auto-reply", "choice", ON_OFF),

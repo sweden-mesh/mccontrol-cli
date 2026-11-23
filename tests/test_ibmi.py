@@ -276,7 +276,7 @@ def test_7_lists_the_commands_and_greys_what_the_firmware_does_not_admit(api):
     raw = walk(api, [(b"1\r", 0.8), (b"7\r", 0.8), (b"get stats\r", 0.6), (b"1\r", 0.6)], raw=True)
     text = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][0-9A-B]|\x1b[=>]", " ", raw)
     assert "Select Command" in text and "-- reads --" in text
-    assert "60 greyed: need a newer build; this device reports unknown" in text
+    assert "61 greyed: need a newer build; this device reports unknown" in text
     assert re.search(r"get stats\s+needs ar-11", text) and re.search(r"get autoreply\s+yes", text)
     assert "get stats: needs ar-11; not sent." in text
     assert sent(store, "FD700369") == []
@@ -290,7 +290,7 @@ def test_a_bare_command_from_the_list_is_sent_at_once(api):
     _far_on(store, "lou-19-arrc")
     api[0].ctx.script["FD700369|ver"] = [0, "> esp32s3-v1.17.1-ar-11"]
     text = walk(api, [(b"1\r", 0.8), (b"7\r", 0.8), (b"ver\r", 0.6), (b"1\r", 1.2)])
-    assert "2 greyed: need a newer build; this device reports lou-19" in text    # the relay switch is lou-20's
+    assert "3 greyed: need a newer build; this device reports lou-19" in text    # the relay switch and get sensors are lou-20's
     assert "Command Results" in text and "> esp32s3-v1.17.1-ar-11" in text
     assert sent(store, "FD700369") == ["ver"]
 
