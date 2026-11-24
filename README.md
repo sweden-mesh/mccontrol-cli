@@ -428,3 +428,18 @@ test vectors live in [mccontrol-spec](https://github.com/sweden-mesh/mccontrol-s
 `python -m mccontrol.webexport --out ../mccontrol-spec` writes those files from this package's
 code, and `tests/test_webexport.py` fails when that differs from `spec/`. A change that alters
 them is released as a new spec tag, then synced here and in mccontrol-web.
+
+## Replacing your key without visiting the nodes (lou-20 and later)
+
+```
+python -m mccontrol.rekey start                              # makes the next key; nothing is sent
+python -m mccontrol.rekey send <node> --via relay:<relay>    # nodes behind a relay first
+python -m mccontrol.rekey send --all                         # then every node on MQTT, the relays among them
+python -m mccontrol.rekey status
+python -m mccontrol.rekey finish                             # the next key becomes yours; the replaced one is kept
+```
+
+Per node it sends `rekey <new public key>` signed with the key in use, then `ver` signed with the
+next key. The node takes the next key only when that second command arrives, so a lost or mistyped
+key changes nothing. A node that did not answer keeps the key in use; run `send` for it again
+within the hour. `abort` forgets the next key while no node has taken it.
