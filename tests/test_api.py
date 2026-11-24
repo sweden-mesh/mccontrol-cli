@@ -139,8 +139,8 @@ def test_every_route_answers_as_its_schema_says(api, monkeypatch):
     arrc = call(url, "GET", "/devices/far/commands")[1]
     rows = {c["text"]: c for g in arrc["groups"] for c in g["commands"]}
     assert not rows["trigger test"]["hidden"] and rows["trigger test"]["admitted"]
-    assert arrc["greyed"] == 4 and not rows["ota update"]["admitted"]      # ota update from lou-19; get sensors and mqtt.relay from lou-20
-    assert not rows["set mqtt.relay"]["admitted"] and not rows["get mqtt.relay"]["admitted"]     # from lou-20
+    assert arrc["greyed"] == 4 and not rows["ota update"]["admitted"]      # ota update from lou-19; get sensors and relay from lou-20
+    assert not rows["set relay"]["admitted"] and not rows["get relay"]["admitted"]     # from lou-20
     assert call(url, "GET", "/commands")[1]["node"] is None
     check = call(url, "GET", "/commands/check?command=set+prv.key+00&device=gisebo")[1]
     assert check["refusal"].startswith("denied") and check["admitted"] is False

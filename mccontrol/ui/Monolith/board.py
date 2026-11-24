@@ -1305,7 +1305,7 @@ class Board:
                   ["username", c["username"], False], ["password", "", True], ["wait seconds", str(c["wait_secs"]), False],
                   ["statistics URL", c["beacon_url"], False]]
         while True:
-            values = self.form("Control broker", fields, body=["The broker a node's mqtt.cmd.slot points at, and its credentials "
+            values = self.form("Control broker", fields, body=["The broker a node's cmd.slot points at, and its credentials "
                                                                f"(the password is {'set; empty keeps it' if c['password_set'] else 'not set'}). "
                                                                "TLS on 8883 is the command plane; plain 1883 takes no commands. "
                                                                "Statistics come from a Beacon server, read-only."])

@@ -79,8 +79,8 @@ def test_the_vectors_for_the_browser_carry_the_documents_bytes():
 
 # -- the allowance and the refusals --------------------------------------------------------
 
-@pytest.mark.parametrize("command", ["set wifi.ssid HomeNet", "set wifi.pwd s3cret", "set mqtt.cmd on",
-                                     "set mqtt.cmd on mqtt-meshcore.louie.se", "reboot", "ver"])
+@pytest.mark.parametrize("command", ["set wifi.ssid HomeNet", "set wifi.pwd s3cret", "set cmd on",
+                                     "set cmd on mqtt-meshcore.louie.se", "reboot", "ver"])
 def test_the_mesh_road_admits_the_repair_and_mqtt_still_refuses_it(command):
     assert denylist.mesh_refusal(command) is None
     if command.startswith("set "):
@@ -88,14 +88,14 @@ def test_the_mesh_road_admits_the_repair_and_mqtt_still_refuses_it(command):
 
 
 @pytest.mark.parametrize("command", ["set wifi.ssid", "set wifi.pwdx s3cret", "SET WIFI.SSID HomeNet",
-                                     "set mqtt.cmd off", "set mqtt.cmd.pubkey AA", "set mqtt.cmd.mesh on",
+                                     "set cmd off", "set cmd.pubkey AA", "set cmd.mesh on",
                                      "get wifi.pwd", "get wifi.ssid", "set prv.key 00", "erase", "set radio 1"])
 def test_everything_else_denied_stays_denied_over_the_mesh(command):
     assert denylist.mesh_refusal(command)
 
 
-@pytest.mark.parametrize("command", ["ota check", "OTA UPDATE", "mqtt.cmd ping", "set wifi.ssid HomeNet",
-                                     "set mqtt.cmd on", "set mqtt1.preset meshat.se", "SET MQTT6.PORT 1883"])
+@pytest.mark.parametrize("command", ["ota check", "OTA UPDATE", "cmd ping", "set wifi.ssid HomeNet",
+                                     "set cmd on", "set mqtt1.preset meshat.se", "SET MQTT6.PORT 1883"])
 def test_a_mesh_only_node_refuses_what_needs_an_uplink(command):
     assert "mesh-only" in denylist.mesh_refusal(command, mesh_only=True)
     assert denylist.mesh_refusal("get name", mesh_only=True) is None

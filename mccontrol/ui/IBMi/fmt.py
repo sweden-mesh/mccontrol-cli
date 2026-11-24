@@ -132,10 +132,10 @@ def fkeys(labels, width=80):
 
 def pubkey_lines(public, width=80):
     """The provisioning commands: the key on one line when it fits, split over two when not."""
-    first = f"set mqtt.cmd.pubkey {public}"
+    first = f"set cmd.pubkey {public}"
     if len(first) <= width - 4:
-        return [first, "set mqtt.cmd on"]
-    return [f"set mqtt.cmd.pubkey {public[:40]}", " " * 20 + public[40:], "set mqtt.cmd on"]
+        return [first, "set cmd on"]
+    return [f"set cmd.pubkey {public[:40]}", " " * 20 + public[40:], "set cmd on"]
 
 
 def test_lines(result):

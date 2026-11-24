@@ -19,7 +19,7 @@ def quick_broker(monkeypatch):
 def test_the_command_line_round_trip(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("MCCONTROL_HOME", str(tmp_path))
     assert cli.main(["keygen"]) == 0
-    assert "set mqtt.cmd.pubkey" in capsys.readouterr().out
+    assert "set cmd.pubkey" in capsys.readouterr().out
     assert cli.main(["keygen"]) == 1                        # refuses to overwrite
     assert cli.main(["config", "--username", "mcoar"]) == 0
     out = capsys.readouterr().out

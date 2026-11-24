@@ -68,7 +68,7 @@ RESULT_HELP = {
     12: "The node has no clock yet, so it cannot judge expiry. It will after its first advert.",
     13: "The command holds a character the node refuses: a control character, the | separator or broken UTF-8.",
     14: "The command is not on the node's allowlist. Only what its firmware admits travels this way.",
-    15: "The node has no command key provisioned. Set mqtt.cmd.pubkey over serial first.",
+    15: "The node has no command key provisioned. Set cmd.pubkey over serial first.",
     16: "The signature did not verify. The node holds a different public key than this one.",
     17: "The node's rate limit refused it. Wait a few minutes.",
     18: "A command that transmits may not be sent to every node at once.",
@@ -114,7 +114,7 @@ def key_from_seed(seed_hex):
 
 
 def public_key_hex(seed_hex):
-    """The 64 hex characters to give the node with `set mqtt.cmd.pubkey`."""
+    """The 64 hex characters to give the node with `set cmd.pubkey`."""
     return key_from_seed(seed_hex).public_key().export_key(format="raw").hex().upper()
 
 

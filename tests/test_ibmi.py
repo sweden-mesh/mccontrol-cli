@@ -149,7 +149,7 @@ def test_the_small_pieces():
                       "F11=Sort", "F12=Cancel", "F13-F21=Shortcuts"])
     assert len(rows) == 2 and all(len(r) <= 78 for r in rows) and rows[0].startswith("F1=Help")
     key = "AB" * 32
-    assert fmt.pubkey_lines(key, 100) == [f"set mqtt.cmd.pubkey {key}", "set mqtt.cmd on"]
+    assert fmt.pubkey_lines(key, 100) == [f"set cmd.pubkey {key}", "set cmd on"]
     split = fmt.pubkey_lines(key, 80)
     assert "".join(l.split()[-1] for l in split[:2]) == key and all(len(l) < 78 for l in split)
     assert fmt.build("set autoreply", ["off"]) == "set autoreply off" and fmt.build("ver", []) == "ver"
@@ -429,7 +429,7 @@ def test_8_shows_the_key_registers_it_and_replaces_it_after_a_confirm(api, monke
     monkeypatch.setenv("MCCONTROL_FAKE_REGISTER", "ok")
     before = store.public_key()
     text = walk(api, [(b"8\r", 0.8), (b"1\r", 1.2), (b"2\r", 0.6), (F[12], 0.4)], cols=100)
-    assert "Work with Signing Key" in text and f"set mqtt.cmd.pubkey {before}" in text and "set mqtt.cmd on" in text
+    assert "Work with Signing Key" in text and f"set cmd.pubkey {before}" in text and "set cmd on" in text
     assert "Registered: ok" in text and re.search(r"Registered with 127\.0\.0\.1 on 20\d\d-\d\d-\d\d", text)
     assert "Confirm Replace of Signing Key" in text and store.public_key() == before
     text = walk(api, [(b"8\r", 0.8), (b"2\r", 0.6), (b"\r", 0.6)])

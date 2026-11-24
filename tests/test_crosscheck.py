@@ -56,8 +56,17 @@ def test_lou_19_rc_matches_the_firmwares_verdicts():
     _check("command-verdicts-lou-19-rc.txt", "esp32s3-v1.18.0-lou-19-rc-observer-1a2b3c4d")
 
 
+def test_lou_20_arrc_matches_the_firmwares_verdicts():
+    """Copied at lou-20rc, where the plane's settings are `cmd.*` and relaying is `relay`."""
+    _check("command-verdicts-lou-20-arrc.txt", "esp32s3-v1.18.0-lou-20rc-arrc-observer-1a2b3c4d")
+
+
+def test_lou_20_rc_matches_the_firmwares_verdicts():
+    _check("command-verdicts-lou-20-rc.txt", "esp32s3-v1.18.0-lou-20rc-rc-observer-1a2b3c4d")
+
+
 def test_the_deny_list_matches_the_newest_firmware_line_for_line():
-    lines = [l.strip() for l in (pathlib.Path(__file__).parent / "data" / "command-verdicts-lou-19-arrc.txt").read_text().splitlines() if l.strip()]
+    lines = [l.strip() for l in (pathlib.Path(__file__).parent / "data" / "command-verdicts-lou-20-arrc.txt").read_text().splitlines() if l.strip()]
     wrong = [(c, v) for v, c in (l.split("|", 1) for l in lines)
              if (denylist.refusal(c) is None) != (v == "allowed")]
     assert wrong == [], wrong

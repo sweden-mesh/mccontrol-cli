@@ -16,6 +16,9 @@ import re
 DENIED_FAMILIES = (
     ("set prv.key", "identity: a changed key is a different node"),
     ("set public.key", "identity: a changed key is a different node"),
+    ("set cmd", "the control plane itself: it would take the node off it"),
+    ("get cmd.pubkey", "the command key"),
+    # the same under their names before lou-20 (`mqtt.cmd.*`), for the nodes still on them
     ("set mqtt.cmd", "the control plane itself: it would take the node off it"),
     ("get mqtt.cmd.pubkey", "the command key"),
     ("set wifi.pwd", "a credential"), ("get wifi.pwd", "a credential"),
@@ -55,7 +58,7 @@ DENIED_PREFIXES = (
     "get prv", "set prv", "get password", "set password", "get guest.password",
     "get wifi.pwd", "set wifi.pwd", "get alert.psk", "set alert.psk",
     "get bridge.secret", "set bridge.secret", "get snmp.community", "set snmp.community",
-    "get mqtt.cmd.pubkey", "set mqtt.cmd", "get tls", "set tls",
+    "get cmd.pubkey", "set cmd", "get mqtt.cmd.pubkey", "set mqtt.cmd", "get tls", "set tls",
 )
 
 SLOT_CREDENTIAL_LEAVES = (".password", ".token", ".username")
@@ -67,7 +70,8 @@ VERBS = (
     ("gps", False), ("powersaving", False), ("clock", False),
     ("ver", True), ("reboot", True), ("clkreboot", True), ("neighbors", True),
     ("board", True), ("memory", True), ("clear stats", True), ("ota check", True),
-    ("mqtt.cmd ping", True),            # ar-12: a ping to the broker and back
+    ("cmd ping", True),            # a ping to the broker and back (lou-20's name)
+    ("mqtt.cmd ping", True),       # the same before lou-20 (ar-12)
     ("ota update", True),               # lou-19: one node at a time, see BROADCAST_REFUSED
 )
 
@@ -135,15 +139,19 @@ def refusal(command):
 # (`mqttCtrlMeshAllowance`). Matched as the node's CLI matches, case and all, and only with a
 # value: `set wifi.pwdx` and a bare `set wifi.ssid` stay denied. Everything else denied stays
 # denied on both roads. `reboot`, to apply the repair, is admitted on both already.
-MESH_ALLOWANCE_WITH_VALUE = ("set wifi.ssid ", "set wifi.pwd ", "set mqtt.cmd on ")
-MESH_ALLOWANCE_EXACT = ("set mqtt.cmd on",)
+MESH_ALLOWANCE_WITH_VALUE = ("set wifi.ssid ", "set wifi.pwd ", "set cmd on ", "set mqtt.cmd on ")
+MESH_ALLOWANCE_EXACT = ("set cmd on", "set mqtt.cmd on")
+# From lou-20 the mesh road also mends a clock that fell behind: `time <epoch>`, all digits, a
+# time at or before the command's own expiry by an hour at most (`mqttCtrlMeshClockStep`). It is
+# admitted on a mesh-only node too, and never over MQTT.
+MESH_CLOCK_STEP = re.compile(r"time [0-9]{10}")
 
 # A mesh-only node (an `rc`/`arrc` image without the Observer bridge) has no Wi-Fi and no MQTT:
 # the allowance repairs an uplink it has none of, and these need one
 # (`mqttCtrlNeedsUplink`, matched whole, any case), as do the broker slots' settings: this prefix,
-# a slot digit and a dot (`set mqtt1.preset ...`, not `set mqtt.cmd`). The node answers them
+# a slot digit and a dot (`set mqtt1.preset ...`, not `set cmd`). The node answers them
 # not-allowed (14).
-NEEDS_UPLINK = ("ota check", "ota update", "mqtt.cmd ping")
+NEEDS_UPLINK = ("ota check", "ota update", "cmd ping", "mqtt.cmd ping")
 NEEDS_UPLINK_SLOT_PREFIX = "set mqtt"
 MESH_ONLY_WHY = "a mesh-only node has no Wi-Fi or MQTT; the firmware refuses it there (not-allowed)"
 
@@ -166,6 +174,8 @@ def mesh_refusal(command, mesh_only=False):
 
     With an uplink the road admits the deny list's admissions and the repair allowance; on a
     mesh-only node the deny list in full, less what needs an uplink."""
+    if MESH_CLOCK_STEP.fullmatch(command or ""):
+        return None
     if mesh_only:
         if needs_uplink(command) or mesh_allowed(" ".join((command or "").split())):
             return f"denied: {MESH_ONLY_WHY}"

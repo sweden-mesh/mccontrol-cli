@@ -12,7 +12,7 @@ and must match nothing on the deny list. This tool knows the list and
 says why before signing, so a refused command costs no command slot:
 
   identity        set prv.key, set public.key
-  the plane       set mqtt.cmd (.slot, .pubkey), get mqtt.cmd.pubkey
+  the plane       set cmd (.slot, .pubkey), get cmd.pubkey
   credentials     password, wifi.pwd, wifi.ssid, guest.password,
                   alert.psk, bridge.secret, snmp.community, mqtt.email,
                   mqtt.owner, owner.info, tls*, get prv*, and a slot's

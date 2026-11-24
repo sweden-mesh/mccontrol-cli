@@ -198,8 +198,8 @@ mccontrol devices | add | remove | discover | key | keygen | config | test | hel
 Two lines over its serial console, on the firmware of 2026-10-08 or later (ar-11):
 
 ```
-set mqtt.cmd.pubkey <your 64-hex public key>     # mccontrol key prints it
-set mqtt.cmd on                                  # takes a free slot, points it at mqtt-meshcore.louie.se; reboot
+set cmd.pubkey <your 64-hex public key>     # mccontrol key prints it
+set cmd on                                  # takes a free slot, points it at mqtt-meshcore.louie.se; reboot
 ```
 
 The node answers `OK - slot 3, mccontrol (mqtts://mqtt-meshcore.louie.se:8883), packets off; reboot to
@@ -217,9 +217,9 @@ anonymous request (sub-type `0xC1`), sent through your own companion radio with
 signature and counter as on MQTT, so a command delivered both ways runs once; the answer comes
 back over the air, encrypted to you by the node. `mccontrol help mesh` is the same text.
 
-**Switch on while it works.** The node's `mqtt.cmd.mesh` is `auto` by default: the road opens
+**Switch on while it works.** The node's `cmd.mesh` is `auto` by default: the road opens
 once MQTT has been down 15 minutes (`on` keeps it open, `off` shuts it; set on the console only).
-Check it now with `mccontrol group send <group> get mqtt.cmd.mesh`. Each device needs its whole
+Check it now with `mccontrol group send <group> get cmd.mesh`. Each device needs its whole
 public key (discovery stores it; `PATCH /devices/{ref}` with `key` otherwise). Set your companion
 once: `mccontrol config --companion tcp:HOST:PORT` (a Wi-Fi companion, see below; or
 `serial:/dev/ttyACM0`, `ble:ADDRESS`).
@@ -228,7 +228,7 @@ once: `mccontrol config --companion tcp:HOST:PORT` (a Wi-Fi companion, see below
 
 ```
 mccontrol send loutest set wifi.ssid HomeNet --via mesh      # or set wifi.pwd, or:
-mccontrol send loutest set mqtt.cmd on mqtt-meshcore.louie.se --via mesh
+mccontrol send loutest set cmd on mqtt-meshcore.louie.se --via mesh
 mccontrol send loutest reboot --via mesh                     # answers nothing: it restarts first
 mccontrol send loutest ver                                   # a few minutes later: back on MQTT?
 ```
@@ -237,7 +237,7 @@ A lou-20 node takes the sealed request (sub-type `0xC2`, a command of at most 57
 lou-19 the `0xC1` above (59 bytes); mccontrol picks per node as it does on MQTT.
 
 Over the mesh the plane admits what it admits over MQTT and, only there, the repair
-(operator ruling 2026-11-16): `set wifi.ssid <v>`, `set wifi.pwd <v>`, `set mqtt.cmd on [<host>]`.
+(operator ruling 2026-11-16): `set wifi.ssid <v>`, `set wifi.pwd <v>`, `set cmd on [<host>]`.
 Everything else denied stays denied; the command key stays serial-only. A command is at most
 59 bytes, checked before signing; one node at a time, never a region; the node answers at most
 one a minute and ten an hour this way. `mesh-closed` means its MQTT works: send it there. Silence
@@ -263,12 +263,12 @@ lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The rel
 or later and be on MQTT. It sends one command at a time within an airtime budget (about 26 in 15
 minutes, then 5 in the next 15; a flood at most once a minute) and waits two minutes for the answer. `no answer` is not a refusal: the node may have run the command. Any
 other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
-on by default: `set mqtt.relay off|own`, and `get mqtt.relay` shows what is left of the budget.
+on by default: `set relay off|own`, and `get relay` shows what is left of the budget.
 History keeps the relay, the route and how well the relay heard the answer.
 
 A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a
 device's `mesh_only` flag) takes commands over the mesh alone, signed for
-`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update`, `mqtt.cmd ping` and
+`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update`, `cmd ping` and
 the broker slots' settings (`set mqttN.*`). On an Observer node the mesh road already reaches
 those slot settings, so a broken Observer feed can be repaired over the mesh.
 The bytes are in mccontrol-spec's [wire format](https://github.com/sweden-mesh/mccontrol-spec/blob/main/docs/wire-format.md)
@@ -312,9 +312,9 @@ that hold their public key; the broker stops forgeries and floods, it does not h
 3. **Register** once per broker: `mccontrol register` registers with every broker in use
    (`--region VGR` for that one only); `mccontrol key` says where the key is registered, and
    `mccontrol test --region VGR` connects, signs in, publishes and receives there.
-4. **Provision each repeater** over serial: `set mqtt.cmd.pubkey <your 64-hex public key>`, then
-   the command slot. For the shared broker that is `set mqtt.cmd on`. For a region's own broker,
-   `set mqtt.cmd on mqtt.meshcore-vgr.se` (firmware lou-18 and later); on lou-17 and older a custom
+4. **Provision each repeater** over serial: `set cmd.pubkey <your 64-hex public key>`, then
+   the command slot. For the shared broker that is `set cmd on`. For a region's own broker,
+   `set cmd on mqtt.meshcore-vgr.se` (firmware lou-18 and later); on lou-17 and older a custom
    slot (any free one from 2 to 6):
 
    ```
@@ -322,8 +322,8 @@ that hold their public key; the broker stops forgeries and floods, it does not h
    set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883
    set mqtt3.audience mqtt.meshcore-vgr.se
    set mqtt3.filter all
-   set mqtt.cmd.slot 3
-   set mqtt.cmd on
+   set cmd.slot 3
+   set cmd on
    reboot
    ```
 
@@ -351,7 +351,7 @@ the broker never learns which key owns which commands; your key only signs and s
 ## The configuration is the control brokers
 
 The only thing configured is the control brokers: `broker`, the shared broker (default
-`mqtt-meshcore.louie.se`, the broker a node's `mqtt.cmd.slot` points at), `brokers`, each region's
+`mqtt-meshcore.louie.se`, the broker a node's `cmd.slot` points at), `brokers`, each region's
 own broker by IATA (empty by default), and the port, username, password and how long to wait
 for answers, the same for every broker.
 The full feature set needs the broker to run the mcbroker Mosquitto plugin. A region belongs to

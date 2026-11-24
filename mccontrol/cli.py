@@ -49,7 +49,7 @@ def build_parser():
     sub = p.add_subparsers(dest="command")
     sub.add_parser("keygen", help="create the signing key").add_argument(
         "--force", action="store_true", help="replace an existing key (silences provisioned nodes)")
-    k = sub.add_parser("key", help="print the public key to provision with 'set mqtt.cmd.pubkey'; "
+    k = sub.add_parser("key", help="print the public key to provision with 'set cmd.pubkey'; "
                                    "or move the key: export to / import from a passphrase-encrypted file")
     k.add_argument("action", nargs="?", choices=("export", "import"))
     k.add_argument("file", nargs="?", help="the backup file (import also takes a file holding a bare seed)")

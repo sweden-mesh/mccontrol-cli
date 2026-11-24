@@ -214,7 +214,7 @@ def test_mcc3_refuses_before_sealing(store, broker, monkeypatch):
     store.add_device("Bench", NODE, "", key=NODE)
     store.update_device(NODE[:8], alive={"state": "online"})
     monkeypatch.setattr(mcc3, "seal_command", lambda *a, **k: pytest.fail("sealed"))
-    for command, why in (("set prv.key 00", "denied"), ("set mqtt.cmd.pubkey AA", "refuse"),
+    for command, why in (("set prv.key 00", "denied"), ("set cmd.pubkey AA", "refuse"),
                          ("set name " + "x" * 160, "at most 160")):
         with pytest.raises(envelope.EnvelopeError, match=why):
             actions.send(store, command, device=store.device("bench"))

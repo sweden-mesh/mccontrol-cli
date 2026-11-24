@@ -72,7 +72,7 @@ def test_admits_by_features():
               "set autoreply on", "set autoreply.region se-jkp", "get autoreply", "get autoreply.legacy"):
         assert firmware.admits(LOU_ARRC, c), c
         assert not firmware.admits(LOU_RC, c), c          # rc without ar: refused, so hidden
-    for c in ("get stats", "region", "ver", "mqtt.cmd ping", "set ota.auto on", "get autoreplyx"):
+    for c in ("get stats", "region", "ver", "cmd ping", "set ota.auto on", "get autoreplyx"):
         assert firmware.admits(LOU_RC, c) == firmware.admits(LOU_ARRC, c), c
     assert firmware.admits(LOU_RC, "get stats") and firmware.admits(LOU_RC, "region put se-jkp *")
     # An ar-only image has no plane: nothing travels to it.

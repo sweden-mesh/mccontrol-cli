@@ -79,6 +79,8 @@ def data():
                         "with mesh_only_why, and the deny list applies in full",
                 "allowance_with_value": list(denylist.MESH_ALLOWANCE_WITH_VALUE),
                 "allowance_exact": list(denylist.MESH_ALLOWANCE_EXACT),
+                "clock_step_pattern": "^" + denylist.MESH_CLOCK_STEP.pattern + "$",
+                "clock_step_rule": "a command that matches clock_step_pattern whole (as typed, not squashed) travels the mesh road, on a mesh-only node too: lou-20 and later step a clock that is behind to it, when the time is at or before the command's expiry by an hour at most",
                 "needs_uplink": list(denylist.NEEDS_UPLINK),
                 "needs_uplink_slot_prefix": denylist.NEEDS_UPLINK_SLOT_PREFIX,
                 "mesh_only_why": "denied: " + denylist.MESH_ONLY_WHY,
@@ -434,24 +436,24 @@ def _mesh_vectors():
 
 MESH_CHECK_COMMANDS = (
     "set wifi.ssid HomeNet", "set wifi.ssid", "set wifi.ssid ", "set wifi.pwd s3cret", "set wifi.pwdx s3cret",
-    "SET WIFI.SSID HomeNet", "set mqtt.cmd on", "set mqtt.cmd on mqtt-meshcore.louie.se", "set mqtt.cmd off",
-    "set mqtt.cmd.pubkey AA", "set mqtt.cmd.mesh on", "get wifi.ssid", "get wifi.pwd", "set mqtt1.server x.se",
-    "OTA CHECK", "mqtt.cmd ping", "reboot", "SET MQTT3.PORT 1883", "set mqttx.preset a", "set mqtt1",
+    "time 1795000000", "time 12", "time 1795000000 x", "SET WIFI.SSID HomeNet", "set cmd on", "set cmd on mqtt-meshcore.louie.se", "set cmd off",
+    "set cmd.pubkey AA", "set cmd.mesh on", "get wifi.ssid", "get wifi.pwd", "set mqtt1.server x.se",
+    "OTA CHECK", "cmd ping", "reboot", "SET MQTT3.PORT 1883", "set mqttx.preset a", "set mqtt1",
 )
 
 
 CHECK_COMMANDS = (
-    "", "ver", "VER", "  get   name ", "get", "set", "set prv.key 00", "get prv", "set prvx", "set mqtt.cmd on",
-    "set mqtt.cmd.pubkey AA", "get mqtt.cmd", "get mqtt.cmd.pubkey", "get mqtt2.password", "get mqtt2.passwordx",
+    "", "ver", "VER", "  get   name ", "get", "set", "set prv.key 00", "get prv", "set prvx", "set cmd on",
+    "set cmd.pubkey AA", "get cmd", "get cmd.pubkey", "get mqtt2.password", "get mqtt2.passwordx",
     "get mqtt2.username", "set mqtt2.password x", "get mqtt.iata", "password x", "passwords", "erase", "erasex",
     "start ota", "ota update", "OTA  Update", "ota update now", "ota check", "region", "region put se-jkp *", "region denyf *", "region denyf se-jkp",
     "region remove se06", "region a|b", "trigger test", "trigger test F", "trigger private AABB", "trigger",
     "set repeat off", "get repeat", "set autoreply off", "set autoreply on", "set autoreply.hops 3",
     "reboot", "reboot now", "clkreboot", "set mqtt.iata GOT", "set mqtt.presets 2", "set mqtt1.server x.se",
-    "set mqtt6.preset custom", "set name SE-JKP-Väster", "mqtt.cmd ping", "advert", "time 1", "log", "neighbors",
+    "set mqtt6.preset custom", "set name SE-JKP-Väster", "cmd ping", "advert", "time 1", "log", "neighbors",
     "neighbors x", "clear stats", "gps on", "powersaving off", "sensor list", "foo", "set lat 1", "get lon",
     "set tx 22", "set txdelay 0.5", "tempradio x",
-    "set mqtt.relay own", "set mqtt.relay off", "get mqtt.relay", "set mqtt.cmd.relay own",
+    "set relay own", "set relay off", "get relay", "set cmd.relay own",
 )
 
 CHECK_VERSIONS = (
@@ -476,9 +478,9 @@ CHECK_VERSIONS = (
     "nrf52-v1.18.0-lou-20-rc-1a2b3c4d",
 )
 
-FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "mqtt.cmd ping",
+FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "cmd ping",
                      "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00", "ota update",
-                     "set mqtt.relay own", "get mqtt.relay")
+                     "set relay own", "get relay")
 
 FACT_ANSWERS = (
     ("ver", "> esp32s3-v1.17.1-lou-18-arrc-observer-1a2b3c4d"),

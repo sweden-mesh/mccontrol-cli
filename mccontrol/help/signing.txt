@@ -5,8 +5,8 @@ Every command is signed with an Ed25519 key kept on this machine
 repeater accepts commands signed by exactly one public key, the one
 given to it over its serial console:
 
-  set mqtt.cmd.pubkey <your 64-hex public key>
-  set mqtt.cmd on
+  set cmd.pubkey <your 64-hex public key>
+  set cmd on
 
 On the firmware of 2026-10-08 or later (ar-11) that second line does
 the rest: with no slot configured the node takes its first free MQTT
@@ -15,7 +15,7 @@ built-in "mccontrol" preset, and says "reboot to apply". A board without
 PSRAM runs two slots at once; if both are its analyzer uplinks, the node
 says so and asks you to turn one off (set mqtt2.preset none) -- it never
 does that for you. A slot for a region's own command broker is set by
-hand (set mqttN.preset custom, server, audience; set mqtt.cmd.slot N);
+hand (set mqttN.preset custom, server, audience; set cmd.slot N);
 [[ownregion]] has the lines.
 
 Each interface shows that command on one line, creates a key when there

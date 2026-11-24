@@ -2145,8 +2145,8 @@
      "path": "/home/u/.config/mccontrol/key.seed",
      "registered": null,
      "provision": [
-      "set mqtt.cmd.pubkey abababababababababababababababababababababababababababababababab",
-      "set mqtt.cmd on"
+      "set cmd.pubkey abababababababababababababababababababababababababababababababab",
+      "set cmd on"
      ],
      "registrations": [
       {

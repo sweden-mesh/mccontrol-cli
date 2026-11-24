@@ -1,7 +1,7 @@
 The control broker
 
 Commands and results travel through an MQTT broker, the one each
-repeater's mqtt.cmd.slot points at. Nodes on lou-20 or later all use the
+repeater's cmd.slot points at. Nodes on lou-20 or later all use the
 shared broker, with no region. For lou-19 and older the shared broker
 serves every region; a region may run its own, and then the configuration names it
 for that region ("mccontrol config --region-broker VGR=<host>"). Each

@@ -16,7 +16,7 @@ after the tag: node clock (4, LE) | counter (4, LE) | result code (1) | reply (U
 It is encrypted to us with the node's key exchange and MAC'd, so it is the node's own word.
 
 Silence is never a refusal: a replay, a bad signature, a node without the road, a closed
-`mqtt.cmd.mesh`, the mesh budget -- all say nothing.
+`cmd.mesh`, the mesh budget -- all say nothing.
 """
 
 import asyncio

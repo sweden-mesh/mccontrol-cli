@@ -13,7 +13,7 @@ def test_the_tuning_writes_and_every_harmless_read_travel():
     for c in ("set txdelay 0.5", "set rxdelay 0", "set af 9", "set cad on", "set int.thresh 1",
               "set flood.max 8", "set flood.max.unscoped 2", "set autoreply.delay 60",
               "get radio", "get radio.rxgain", "get af.anything", "get name", "get public.key",
-              "get mqtt1.server", "get mqtt.cmd", "region", "region put se-jkp *",
+              "get mqtt1.server", "get cmd", "region", "region put se-jkp *",
               "trigger test", "trigger private " + "AB" * 32, "ver", "reboot", "clkreboot",
               "neighbors", "neighbor.remove 4AC61A7F", "board", "memory", "clear stats",
               "ota check", "clock", "clock sync", "gps on", "powersaving off", "sensor get gps",
@@ -25,8 +25,8 @@ def test_the_tuning_writes_and_every_harmless_read_travel():
 def test_each_denied_group_is_refused_with_a_reason():
     cases = {
         "set prv.key 00": "identity", "set public.key 00": "identity",
-        "set mqtt.cmd off": "control plane", "set mqtt.cmd.slot 2": "control plane",
-        "set mqtt.cmd.pubkey 00": "control plane", "get mqtt.cmd.pubkey": "command key",
+        "set cmd off": "control plane", "set cmd.slot 2": "control plane",
+        "set cmd.pubkey 00": "control plane", "get cmd.pubkey": "command key",
         "set wifi.pwd x": "credential", "get wifi.ssid": "network", "password x": "credential",
         "get guest.password": "credential", "set alert.psk 00": "credential",
         "get bridge.secret": "credential", "get snmp.community": "credential",

@@ -8,9 +8,9 @@ companion radio. Same key, same signature, same counter: a command
 delivered both ways runs once. The answer comes back over the air.
 
 Switch on while it works
-  The node's mesh road is the setting mqtt.cmd.mesh: auto (the default)
+  The node's mesh road is the setting cmd.mesh: auto (the default)
   opens it once MQTT has been down 15 minutes; on keeps it open; off
-  shuts it. Check it now, while MQTT works: send "get mqtt.cmd.mesh".
+  shuts it. Check it now, while MQTT works: send "get cmd.mesh".
   If a node says off, set it on its console. A device group (see
   [[cli]]) reads it from every node in one go.
   Make sure each device has its whole public key (discovery stores it):
@@ -30,15 +30,15 @@ The recipe
        mccontrol send loutest set wifi.ssid HomeNet --via mesh
        mccontrol send loutest set wifi.pwd s3cret --via mesh
      or point the command slot at the broker:
-       mccontrol send loutest set mqtt.cmd on mqtt-meshcore.louie.se --via mesh
+       mccontrol send loutest set cmd on mqtt-meshcore.louie.se --via mesh
   3. Reboot to apply it:  mccontrol send loutest reboot --via mesh
      A reboot answers nothing; the node restarts first.
   4. Confirm on MQTT, a few minutes later:  mccontrol send loutest ver
 
 What the mesh road admits
   Everything the plane admits over MQTT, and only here the repair:
-  set wifi.ssid, set wifi.pwd (each with a value), set mqtt.cmd on and
-  set mqtt.cmd on <host>. The broker slots' settings (set mqttN.*) travel
+  set wifi.ssid, set wifi.pwd (each with a value), set cmd on and
+  set cmd on <host>. The broker slots' settings (set mqttN.*) travel
   too, so a broken Observer feed can be repaired over the mesh as well.
   Everything else denied stays denied. A command
   is at most 57 bytes to a node on lou-20 or later (sealed) and 59 to
@@ -78,14 +78,14 @@ Through a relay
   the answer. A node answers a flooded command 15 to 30 seconds
   after it arrives. "no answer" is not a refusal: the node may have run the
   command. Relaying is on by default. Switch it with
-  "set mqtt.relay off" or "set mqtt.relay own"; "get mqtt.relay"
+  "set relay off" or "set relay own"; "get relay"
   shows what is left of the budget.
 
 Mesh-only nodes
   A node built without Wi-Fi (an rc image with no -observer in its
   version) takes commands over the mesh alone. Its commands are signed
   for the region named mesh, and it refuses the Wi-Fi and MQTT repair,
-  ota check, ota update, mqtt.cmd ping and the broker slots' settings
+  ota check, ota update, cmd ping and the broker slots' settings
   (set mqttN.*). The command key is set on its
   console, as on every node.
 

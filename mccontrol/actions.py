@@ -16,7 +16,7 @@ CAUTIONS = (
     ("region denyf", "stops this repeater forwarding that scope."),
     ("region remove", "deletes that region from the repeater. Messages scoped to it are dropped."),
     ("set autoreply off", "stops this repeater answering test requests."),
-    # `set repeat off`, `erase` and `set mqtt.cmd*` used to be here; the firmware's deny list of
+    # `set repeat off`, `erase` and `set cmd*` used to be here; the firmware's deny list of
     # 2026-10-08 refuses them outright (`denylist.py`), so there is nothing to ask.
     # Admitted since that list; each can take the node out of reach for a while or move
     # where it listens, so the person is told first.
@@ -37,7 +37,7 @@ CAUTIONS = (
                       "until the mesh road sets it again."),
     ("set wifi.pwd", "changes the Wi-Fi password the node uses; a wrong one keeps it off MQTT "
                      "until the mesh road sets it again."),
-    ("set mqtt.cmd on", "points the node's command slot at a broker; a wrong one keeps it off the "
+    ("set cmd on", "points the node's command slot at a broker; a wrong one keeps it off the "
                         "control plane until the mesh road sets it again."),
 )
 
@@ -268,6 +268,9 @@ def send(store, command, device=None, region=None, dry_run=False, wait_secs=None
     Raises `envelope.EnvelopeError`, `transport.BrokerError`, `mesh.MeshError` or
     `store.StoreError`.
     """
+    # `time now`: this computer's clock, for a node whose own fell behind (lou-20, the mesh road).
+    if " ".join((command or "").split()).lower() == "time now":
+        command = f"time {int(time.time())}"
     if via == RELAY_ROAD:
         if device is None:
             raise envelope.EnvelopeError(RELAY_ONE_NODE)
@@ -536,7 +539,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     said = {"node": relay["node"], "name": relay_name, "route": route, "status": None, "sent": None, "snr": None}
     if got is None:
         line = (f"no answer from the relay {relay_name}: is it online, on lou-20 or later, and relaying "
-                f"(get mqtt.relay)?")
+                f"(get relay)?")
     else:
         status = got["status"]
         said.update(status=mcc3.FORWARD_STATUSES[status] if status < len(mcc3.FORWARD_STATUSES) else f"unknown-{status}",

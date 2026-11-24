@@ -458,8 +458,8 @@ def test_n_reads_names_and_versions_and_r_refreshes_the_fleet(tmp_path):
 
 def test_k_shows_the_provisioning_lines_and_g_replaces_the_key_after_a_confirm(tmp_path):
     text, home = walk(tmp_path, [(b"k", 0.6)], cols=100)
-    public = re.search(r"set mqtt\.cmd\.pubkey ([0-9A-F]{64})", text).group(1)
-    assert "set mqtt.cmd on" in text and "Not registered with the broker yet" in text
+    public = re.search(r"set cmd\.pubkey ([0-9A-F]{64})", text).group(1)
+    assert "set cmd on" in text and "Not registered with the broker yet" in text
     before = (home / "key.seed").read_text()
     text, home = walk(tmp_path / "g", [(b"k", 0.6), (b"g", 0.6), (b"y", 0.8)])
     assert "Every repeater provisioned with the current key" in text and "key created" in text

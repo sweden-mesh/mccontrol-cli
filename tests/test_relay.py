@@ -296,7 +296,7 @@ def test_a_relay_known_by_its_alive_alone_will_do(store, relay):
 
 
 def test_the_mesh_roads_rules_apply_before_signing(store, nothing_signed):
-    for command, why in (("set prv.key 00", "denied"), ("set mqtt.cmd off", "denied"), ("erase", "denied"),
+    for command, why in (("set prv.key 00", "denied"), ("set cmd off", "denied"), ("erase", "denied"),
                          ("ota check", "mesh-only"), ("set name " + "x" * 49, "1..57 bytes"), ("", "empty")):
         with pytest.raises(envelope.EnvelopeError, match=why):
             through(store, command)
@@ -365,11 +365,11 @@ def test_a_path_as_typed():
 # -- the switch and the alive flag ---------------------------------------------------------
 
 def test_the_relay_switch_is_an_ordinary_command_from_lou_20():
-    for command in ("set mqtt.relay off", "set mqtt.relay own", "get mqtt.relay"):
+    for command in ("set relay off", "set relay own", "get relay"):
         assert denylist.refusal(command) is None and denylist.mesh_refusal(command) is None
         assert firmware.needs(command) == "lou-20"
         assert firmware.admits(OBSERVER, command) and not firmware.admits(LOU_19, command)
-    for command in ("set mqtt.cmd.relay own", "set mqtt.cmd relay", "set mqtt.cmd"):
+    for command in ("set cmd.relay own", "set cmd relay", "set cmd"):
         assert denylist.refusal(command)                                # the plane's own settings stay denied
     assert firmware.relays(OBSERVER) and not firmware.relays(MESH_ONLY) and not firmware.relays(LOU_19)
     assert not firmware.relays(None)

@@ -21,7 +21,7 @@ The sets are taken from the firmware's own history (`src/helpers/MqttControlLogi
   ar-11   the deny list of 2026-10-08 (621218cb) and `get stats` (2c079ed7): everything
           `denylist.refusal` admits. `region`, `ver` and `get name` arrived between the
           two on the same branch and ship with ar-11.
-  ar-12   ar-11's and `mqtt.cmd ping` (2026-10-10).
+  ar-12   ar-11's and `cmd ping` (2026-10-10).
   ar-13   ar-12's, and the encrypted `v2` envelope (firmware TODO 17a): from here a command
           to one node is sent as v2, below it (and every broadcast) as v1.
   lou-14  ar-13's, less what the image's features leave out (above).
@@ -62,8 +62,8 @@ FEATURES_BEFORE_LOU = "arrc"
 AUTOREPLY_FAMILIES = ("trigger", "set autoreply", "get autoreply")
 
 # Commands the deny list admits that arrived after ar-11: the revision that admits each.
-ARRIVED = {"mqtt.cmd ping": 12, "ota update": 19,
-           "get mqtt.relay": 20, "get sensors": 20, "set mqtt.relay off": 20, "set mqtt.relay own": 20}
+ARRIVED = {"mqtt.cmd ping": 12, "cmd ping": 20, "ota update": 19,
+           "get relay": 20, "get sensors": 20, "set relay off": 20, "set relay own": 20}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13
@@ -81,7 +81,7 @@ MESH_FROM = 19
 MCC3_FROM = 20
 
 # The first revision whose Observer image relays: it transmits its owner's mesh-road request
-# to another node and returns the answer over MQTT (`set mqtt.relay off|own`).
+# to another node and returns the answer over MQTT (`set relay off|own`).
 RELAY_FROM = 20
 
 

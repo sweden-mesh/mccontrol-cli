@@ -597,7 +597,7 @@ class App:
             reg = key["registered"]
             regs = key.get("registrations") or []
             body = ["Provision each repeater over its serial console with:", "",
-                    f"  set mqtt.cmd.pubkey {public}", "  set mqtt.cmd on", "",
+                    f"  set cmd.pubkey {public}", "  set cmd on", "",
                     f"The private seed is in {key['path']}", "and never leaves this machine inside anything but a signature.", ""]
             if len(regs) > 1:           # a region with its own broker: one line per broker (RB-1)
                 body += [f"Registered with {r['broker']} on {r['at'][:10]}." if r["at"] else
@@ -655,7 +655,7 @@ class App:
                   Field("Wait seconds", str(cfg.get("wait_secs", 20)), width=4),
                   Field("Statistics URL", cfg.get("beacon_url", ""), width=44, hotkey="t")]
         d = Dialog("Control broker", fields=fields, width=70,
-                   body=["The broker a node's mqtt.cmd.slot points at, and its credentials.",
+                   body=["The broker a node's cmd.slot points at, and its credentials.",
                          "TLS on 8883 is the command plane; plain 1883 takes no commands.",
                          "Statistics come from a Beacon server, read-only, no credentials.",
                          f"Password {'(set)' if cfg.get('password_set') else '(not set)'}: an empty field keeps it."])

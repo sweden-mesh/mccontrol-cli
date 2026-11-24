@@ -17,7 +17,7 @@ said to send them anyway:
                        control plane rides that slot, it may go silent.
   set name             renames the node as the whole mesh sees it.
 
-set repeat off, erase and set mqtt.cmd* are not cautions any more: the
+set repeat off, erase and set cmd* are not cautions any more: the
 firmware refuses them outright, and so does this tool, before signing
 (see [[commands]]).
 

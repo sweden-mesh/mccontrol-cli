@@ -845,7 +845,7 @@ class App:
         at = 0
         while True:
             key, values = form(self.t, "Change Configuration", fields,
-                               head=["The broker a node's mqtt.cmd.slot points at, and its credentials.",
+                               head=["The broker a node's cmd.slot points at, and its credentials.",
                                      "TLS on 8883 is the command plane; plain 1883 takes no commands.",
                                      "Statistics come from a Beacon server, read-only, no credentials.",
                                      "The password is never shown: type one to change it, *NONE to remove it."],

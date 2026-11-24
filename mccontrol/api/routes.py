@@ -196,7 +196,7 @@ def key_view(store):
     return {"exists": store.has_key(), "public": public, "path": str(store.key_path),
             "registered": store.registration(),
             "registrations": [{"broker": b, "at": at} for b, at in store.registrations().items()],
-            "provision": [f"set mqtt.cmd.pubkey {public}", "set mqtt.cmd on"] if public else []}
+            "provision": [f"set cmd.pubkey {public}", "set cmd on"] if public else []}
 
 
 def get_key(ctx, _p, _q, _b):

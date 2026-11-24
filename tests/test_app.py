@@ -200,7 +200,7 @@ def test_f8_forgets_after_a_confirm(tmp_path):
 
 def test_the_keys_dialog_shows_the_provisioning_command_on_one_line(tmp_path):
     text, _ = walk(tmp_path, [(b"\x1bk", 0.6), (b"\r", 1.2)], cols=100, seconds=4.0)   # Alt+K opens Keys; Enter runs the item
-    assert "set mqtt.cmd.pubkey" in text
+    assert "set cmd.pubkey" in text
     from mccontrol import envelope
     # the terminal stream may carry an attribute change inside the key, which strips to a space
     assert envelope.public_key_hex("11" * 32) in text.replace(" ", "")
