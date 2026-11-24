@@ -156,7 +156,15 @@ def scheme(device):
     alive = (device or {}).get("alive") or {}
     if alive and alive.get("state") != "not-yours":
         return "mcc3"
-    return "mcc3" if firmware.speaks_mcc3((device or {}).get("ver")) else "old"
+    device = device or {}
+    if firmware.speaks_mcc3(device.get("ver")):
+        return "mcc3"
+    # Added by its key, nothing read from it yet (a node without MQTT cannot say its version
+    # before the first command reaches it) and no region to address the old scheme by: the old
+    # scheme cannot be tried at all, so the first command goes the new way.
+    if not alive and not device.get("ver") and envelope.node_key(device.get("key") or "") and not (device.get("region") or "").strip():
+        return "mcc3"
+    return "old"
 
 
 def area_devices(store, region=None, county=None):

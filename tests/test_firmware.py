@@ -105,3 +105,12 @@ def test_a_version_as_an_alive_names_it_reads_like_vers_answer():
     assert firmware.relays(short) is True
     assert firmware.mesh_only("lou-20rc-rc-1f80c095") is True
     assert firmware.mesh_only(short) is False
+
+
+def test_a_node_added_by_key_with_no_version_and_no_region_takes_mcc3():
+    from mccontrol import actions
+    key = "B" * 64
+    assert actions.scheme({"node": "BBBBBBBB", "key": key, "region": ""}) == "mcc3"
+    assert actions.scheme({"node": "BBBBBBBB", "key": key, "region": "JKG"}) == "old"
+    assert actions.scheme({"node": "BBBBBBBB", "key": "BBBBBBBB", "region": ""}) == "old"
+    assert actions.scheme({"node": "BBBBBBBB", "key": key, "region": "", "ver": "v1.18.0-lou-19-arrc-observer-1a2b3c4d"}) == "old"
