@@ -68,6 +68,7 @@ VERBS = (
     ("set", False), ("get", False), ("region", False), ("trigger test", False),
     ("trigger private", False), ("neighbor.remove", False), ("sensor", False),
     ("gps", False), ("powersaving", False), ("clock", False),
+    ("rekey", False),              # lou-20: a new command key offered by the one in use
     ("ver", True), ("reboot", True), ("clkreboot", True), ("neighbors", True),
     ("board", True), ("memory", True), ("clear stats", True), ("ota check", True),
     ("cmd ping", True),            # a ping to the broker and back (lou-20's name)
