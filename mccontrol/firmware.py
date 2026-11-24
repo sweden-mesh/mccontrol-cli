@@ -90,12 +90,19 @@ RELAY_FROM = 20
 LOU_FEATURES = re.compile(r"-lou-\d+(?:rc\d*)?-([a-z]+)-")
 
 
+def _text(version_text):
+    """A version string in lower case. A node's alive names its version without the board and
+    MeshCore prefix (`lou-20rc-arrc-observer-60407864`): read it as `-lou-...`, like `ver`'s."""
+    text = (version_text or "").lower()
+    return "-" + text if text.startswith("lou-") else text
+
+
 def revision(version_text):
     """The revision in a version string, or None: `-lou-N-` first, then `-ar-N-`.
 
     `-lou-` wins because an image with auto-reply alone reads `...-lou-14-ar-1a2b3c4d`,
     whose `-ar-` would otherwise give the hash's leading digits."""
-    text = (version_text or "").lower()
+    text = _text(version_text)
     for tag in ("-lou-", "-ar-"):
         at = text.find(tag)
         if at < 0:
@@ -109,7 +116,7 @@ def features(version_text):
     """The features a version names (`ar`, `rc`, `arrc`, ...). A version before lou-14
     names none and had both: `arrc`. A lou version whose token is not a combination in the
     fixed order is not trusted with any: ``""``."""
-    text = (version_text or "").lower()
+    text = _text(version_text)
     m = LOU_FEATURES.search(text)
     if m is None:
         return "" if "-lou-" in text else FEATURES_BEFORE_LOU
@@ -240,7 +247,7 @@ def speaks_mesh(version_text):
 def mesh_only(version_text):
     """Is the image a mesh-only one: the plane (`rc`) without the Observer bridge, so no Wi-Fi
     and no MQTT? Only a lou version names its features; anything else is not."""
-    text = (version_text or "").lower()
+    text = _text(version_text)
     return "-lou-" in text and has(version_text, "rc") and "-observer" not in text
 
 

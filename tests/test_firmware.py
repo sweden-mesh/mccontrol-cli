@@ -96,3 +96,12 @@ def test_a_release_candidates_revision_is_not_the_feature_rc():
     second = "nrf52840-v1.18.0-lou-20rc2-rc-a8ab24d0"
     assert firmware.revision(second) == 20 and firmware.features(second) == "rc" and firmware.mesh_only(second)
     assert firmware.features("nrf52840-v1.18.0-lou-20-rc-9ccbb597") == "rc"      # the release, as before
+
+
+def test_a_version_as_an_alive_names_it_reads_like_vers_answer():
+    short = "lou-20rc-arrc-observer-60407864"
+    assert firmware.revision(short) == 20
+    assert firmware.features(short) == "arrc"
+    assert firmware.relays(short) is True
+    assert firmware.mesh_only("lou-20rc-rc-1f80c095") is True
+    assert firmware.mesh_only(short) is False
