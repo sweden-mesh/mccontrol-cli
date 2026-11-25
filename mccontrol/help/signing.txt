@@ -47,8 +47,8 @@ Replacing the key
     python -m mccontrol.rekey finish    the next key becomes yours
   A node that did not answer keeps the key in use; run send for it
   again within the hour. "abort" forgets the next key while no node has
-  taken it. The web app has no rekey of its own yet: rotate here, then
-  move the key there with a backup file.
+  taken it. The web app does the same round: Setup, Key, "Replace the
+  key on your nodes". A backup file moves the key between the two.
   A node on lou-19 or older, and a key you no longer hold, need the new
   key on the USB console.
 
