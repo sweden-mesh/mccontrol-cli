@@ -326,7 +326,7 @@ lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The rel
 or later and be on MQTT. It sends one command at a time within an airtime budget (5 % of 15
 minutes, about 26 commands, then 1 % of the next 15, about 5; floods one a minute, then one in
 five minutes, 100 a day) and waits two minutes for the answer;
-a second one sent before the first is on the air replaces it, and the first is never answered. `no answer` is not a refusal: the node may have run the command. Any
+a second one sent while the first waits for its answer is answered `busy`, or dropped unanswered if the two arrive together; the first goes through. `no answer` is not a refusal: the node may have run the command. Any
 other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
 on by default: `set relay off|own`, and `get relay` shows what is left of the budget.
 History keeps the relay, the route and how well the relay heard the answer.

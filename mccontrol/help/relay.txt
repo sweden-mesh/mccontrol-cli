@@ -34,9 +34,10 @@ The route
   once to learn the way, then send direct.
 
 One command at a time
-  A relay holds one command. A second one that arrives before the first
-  is on the air replaces it, and the first is never answered. Send one
-  and wait for its answer. One node at a time: never a region, a county
+  A relay holds one command until its answer comes, or two minutes. A
+  second one sent meanwhile is answered busy, or dropped unanswered if
+  the two arrive together; the first goes through. Send one and wait
+  for its answer. One node at a time: never a region, a county
   or a group.
 
 The relay's budget
