@@ -5,7 +5,7 @@ import os
 import random
 import time
 
-from . import beacon, commands, denylist, envelope, firmware, mcc3, mesh, nodestats, plane, store as _store, transport
+from . import beacon, commands, denylist, envelope, firmware, mcc3, mesh, nodestats, plane, silence, store as _store, transport
 from .store import _now as _store_now
 
 # Commands that take something away from a repeater. Each is sent only after the person has
@@ -353,6 +353,7 @@ def _mesh_done(store, config, command, device, topic, body, result, info, head, 
                progress, script):
     if fallback and result is not None and result.code == 19:
         store.record(device["node"], command, topic, result, note="mesh closed: sent over MQTT", road="mesh")
+        _advice(store, device, command, result, "mesh")
         t, p, answers, lines = _send_mqtt(store, config, command, device, False, wait_secs, progress, script)
         return t, p, answers, [f"{head}: the node's mesh road is closed (its MQTT works); sent over MQTT"] + lines
     store.record(device["node"], command, topic, result, note=why, road="mesh")
@@ -362,10 +363,11 @@ def _mesh_done(store, config, command, device, topic, body, result, info, head, 
     added = "; the node was made a contact on the companion" if info.get("contact") == "added" else ""
     line = outcome_line(result, device.get("ver"))
     if result is None:
-        line += " (silence over the mesh is not a refusal: a node without the road, or its budget, says nothing)"
+        line += " (not a refusal: the node may have run the command)"
+    more = _advice(store, device, command, result, "mesh", direct=path.startswith("direct"))
     return topic, body.hex().upper(), {device["node"]: result} if result is not None else {}, [
         f"{head} through {spec}: {path}{added}",
-        f"{(device.get('name') or device['node'])[:12]:12} {line}"]
+        f"{(device.get('name') or device['node'])[:12]:12} {line}"] + more
 
 
 def _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress, script, why, fallback):
@@ -398,6 +400,21 @@ def _send_mesh_mcc3(store, config, command, device, dry_run, wait_secs, progress
                                             progress=progress)
     return _mesh_done(store, config, command, device, topic, body, result, info, head, spec, why, fallback,
                       wait_secs, progress, script)
+
+
+def _advice(store, device, command, result, road, direct=False, unknown=False):
+    """Keep the device's silence state after one send and return the lines `silence.advice`
+    has for it, indented to go under the result. Uses what was read; sends nothing."""
+    node = device["node"]
+    outcome = ("unknown" if unknown or (result is not None and result.verified is False) else
+               "silent" if result is None else "ok" if result.ok else "refused")
+    read = silence.refused_count(command, result.reply) if outcome == "ok" else None
+    if road not in silence.MESH_ROADS and read is None:
+        return []
+    kept = next((d.get("silence") for d in store.devices() if d["node"] == node), None)
+    state, before, after = silence.step(kept, road, outcome, direct, read)
+    store.update_device(node, silence=state)
+    return [f"{'':12} {line}" for line in silence.advice(road, outcome, state["direct"], before, after)]
 
 
 # -- through a relay ---------------------------------------------------------------------------
@@ -503,6 +520,8 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     relay_name, name = relay.get("name") or relay["node"], device.get("name") or device["node"]
     how = ROUTE_TEXT[route] + (f", {_hops(path_len, hops)}" if route == "direct" else "")
     head = f"through relay {relay_name} ({how})"
+    note = silence.path_note(path)          # sent as given; said under the result
+    note = [f"{'':12} {note}"] if note else []
 
     def build(counter):
         if new:
@@ -516,7 +535,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     if dry_run:
         payload = seal(0, build(0))
         return topic, payload, {}, [f"would send {head}", f"would publish to {mcc3.command_topic(relay_key)} "
-                                    f"(mcc3, a sealed forward)", payload, "not sent (dry run)"]
+                                    f"(mcc3, a sealed forward)", payload, "not sent (dry run)"] + note
     counter = store.next_counter(device["node"])
     forward_counter = store.next_forward_counter(relay["node"])
     payload = seal(forward_counter, build(counter))
@@ -563,7 +582,11 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
         store.remember_read(node, command, result.reply or "OK", result.verified)
     heard = "" if said["snr"] is None else f", answer heard at {said['snr']:g} dB"
     sent = f": sent {said['sent']}{heard}" if said["sent"] else ""
-    return topic, payload, {node: result} if result is not None else {}, [f"{head}{sent}", f"{name[:12]:12} {line}"]
+    more = []
+    if got is None or got["status"] in (mcc3.FORWARD_ANSWERED, mcc3.FORWARD_NO_ANSWER):   # else nothing went on the air
+        more = _advice(store, device, command, result, RELAY_ROAD, direct=route == "direct",
+                       unknown=got is None or result is None and got["status"] == mcc3.FORWARD_ANSWERED)
+    return topic, payload, {node: result} if result is not None else {}, [f"{head}{sent}", f"{name[:12]:12} {line}"] + more + note
 
 
 def _whole_key(device):
@@ -614,6 +637,7 @@ def _send_mqtt(store, config, command, device, dry_run, wait_secs, progress, scr
         if result is not None and result.ok and commands.is_read(command) and node in names:
             store.remember_read(node, command, result.reply or "OK", result.verified)
         lines.append(f"{names.get(node, node[:8])[:12]:12} {outcome_line(result, versions.get(node))}")
+        lines += _advice(store, device, command, result, "mqtt")
     return topic, payload, answers, lines
 
 
@@ -645,6 +669,7 @@ def _send_mcc3(store, config, command, device, dry_run, wait_secs, progress, scr
     if result is not None and result.ok and commands.is_read(command):
         store.remember_read(node, command, result.reply or "OK", result.verified)
     lines.append(f"{(device.get('name') or node)[:12]:12} {outcome_line(result, device.get('ver'))}")
+    lines += _advice(store, device, command, result, "mqtt")
     return topic, payload, answers, lines
 
 

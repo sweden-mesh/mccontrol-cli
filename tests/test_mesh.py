@@ -7,7 +7,7 @@ import time
 import pytest
 from Crypto.Signature import eddsa
 
-from mccontrol import actions, beacon, cli, denylist, envelope, firmware, mesh, store as _store, transport
+from mccontrol import actions, beacon, cli, denylist, envelope, firmware, mesh, silence, store as _store, transport
 
 DOC_SEED = bytes(0x11 + i for i in range(32)).hex()
 DOC_NODE_SEED = bytes(0xA0 + i for i in range(32)).hex()
@@ -214,6 +214,9 @@ def test_a_known_path_goes_direct_and_silence_is_not_a_refusal(store, monkeypatc
     _t, _p, answers, lines = actions.send(store, "get name", device=store.device("bench"), via="mesh", wait_secs=0.3)
     assert not fake.added and "direct, 2 hop(s)" in lines[0]
     assert answers == {} and "no answer" in lines[1] and "not a refusal" in lines[1]
+    assert lines[2:] == [f"{'':12} {silence.UNKNOWN}"] and store.device("bench")["silence"]["direct"] == 1
+    lines = actions.send(store, "get name", device=store.device("bench"), via="mesh", wait_secs=0.3)[3]
+    assert lines[3:] == [f"{'':12} {silence.FLOOD['mesh'].format(n=2)}"] and len(fake.sent) == 2
     assert store.history(DOC_NODE[:8])[-1]["code"] is None
 
 

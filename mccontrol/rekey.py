@@ -111,7 +111,7 @@ def _send(store, signer, command, device, via="mqtt", relay=None, route="direct"
     if via != "relay":
         _t, _p, results, lines = actions.send(signer, command, device=device, via=via, wait_secs=wait_secs)
         r = results.get(device["node"])
-        return (r is not None and r.ok), lines[-1]
+        return (r is not None and r.ok), next(l for l in reversed(lines) if not l.startswith(" "))   # not the advice under it
     if relay is None:
         raise RekeyError("name the relay")
     hop = _signer(store, relay)

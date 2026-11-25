@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from mccontrol import actions, beacon, cli, denylist, envelope, firmware, mcc3, mesh, plane, store as _store, transport
+from mccontrol import actions, beacon, cli, denylist, envelope, firmware, mcc3, mesh, plane, silence, store as _store, transport
 
 OWNER_SEED = bytes(0x11 + i for i in range(32)).hex()
 OWNER = envelope.public_key_hex(OWNER_SEED)
@@ -214,12 +214,57 @@ def test_a_lou_19_target_gets_its_0xC1_request_and_its_plain_answer_is_read(stor
 def test_no_answer_reads_as_no_answer_never_as_refused(store, relay):
     relay.status = mcc3.FORWARD_NO_ANSWER
     _t, _p, answers, lines = through(store)
-    assert answers == {} and "refused" not in " ".join(lines)
+    assert answers == {} and "refused" not in " ".join(lines[:2])
     assert lines == ["through relay Bench (direct, no hops: only a node the relay hears itself): sent direct",
-                     "Cabin        no answer (not a refusal: the node may have run the command)"]
+                     "Cabin        no answer (not a refusal: the node may have run the command)",
+                     f"{'':12} {silence.UNKNOWN}"]
     h = store.history(TARGET[:8])[-1]
     assert (h["code"], h["note"], h["relay"]["status"], h["relay"]["snr"]) == (None, "no-answer", "no-answer", None)
     assert store.device("cabin").get("last_heard") is None
+
+
+def test_two_direct_sends_without_an_answer_suggest_a_flood_and_an_answer_ends_the_count(store, relay):
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    assert len(through(store)[3]) == 3
+    relay.status = 7                                                    # rate-limited: nothing went on the air
+    assert len(through(store)[3]) == 2 and store.device("cabin")["silence"]["direct"] == 1
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    lines = through(store)[3]
+    assert lines[2:] == [f"{'':12} {silence.UNKNOWN}", f"{'':12} {silence.FLOOD['relay'].format(n=2)}"]
+    assert len(relay.forwards) == 3 and all(f["route"] == 0 for f in relay.forwards)    # suggested, never sent
+    assert len(through(store, route="flood")[3]) == 3 and store.device("cabin")["silence"]["direct"] == 0
+    through(store), through(store)
+    relay.status = mcc3.FORWARD_ANSWERED
+    assert len(through(store)[3]) == 2 and store.device("cabin")["silence"]["direct"] == 0
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    assert len(through(store)[3]) == 3
+
+
+def test_a_refused_count_that_rose_between_two_reads_around_the_silence_is_said(store, relay):
+    relay.answer = (0, "> on, counter 5, mesh only, mesh on ok 1 refused 2")
+    assert len(through(store, "get cmd")[3]) == 2
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    through(store)
+    relay.status, relay.answer = mcc3.FORWARD_ANSWERED, (0, "> on, counter 5, mesh only, mesh on ok 2 refused 3")
+    lines = through(store, "get cmd")[3]
+    assert lines[2:] == [f"{'':12} {silence.REFUSED.format(before=2, after=3)}"]
+    assert len(through(store, "get cmd")[3]) == 2                       # said once
+    assert len(relay.forwards) == 4                                     # nothing was sent to find out
+
+
+@pytest.mark.parametrize("ver", [OBSERVER, LOU_19])
+def test_a_get_cmd_over_mqtt_after_a_silence_over_the_mesh_is_compared_too(store, relay, ver):
+    store.save_config(companion="tcp:192.0.2.1:5000")                   # never opened: the answers are scripted
+    store.update_device(RELAY[:8], ver=ver, region="TST")
+    read = "get cmd" if ver == OBSERVER else "get mqtt.cmd"
+    node, bench = RELAY[:8], lambda: store.device("bench")
+    said = lambda refused: {node: [0, f"> on, counter 5, mesh on ok 1 refused {refused}"]}
+    assert len(actions.send(store, read, device=bench(), script=said(4))[3]) == 1
+    lines = actions.send(store, "get name", device=bench(), via="mesh", script={})[3]
+    assert lines[2:] == [f"{'':12} {silence.UNKNOWN}"]                  # it cannot tell yet, and says so
+    lines = actions.send(store, read, device=bench(), script=said(6))[3]
+    assert lines[1:] == [f"{'':12} {silence.REFUSED.format(before=4, after=6)}"]
+    assert len(actions.send(store, read, device=bench(), script=said(7))[3]) == 1
 
 
 @pytest.mark.parametrize("status", range(2, 10))
@@ -417,6 +462,17 @@ def test_the_command_line_takes_a_relay_a_route_and_a_path(home, relay, capsys):
     assert rows[1].endswith("[Bench, flood, sent flood, 5.5 dB]") and rows[2].endswith("[Bench, direct, sent direct, 5.5 dB]")
     assert rows[3].endswith("no answer  [Bench, direct, sent direct]")
     assert rows[4].endswith("not sent: relay rate-limited  [Bench, direct]") and "refused" not in rows[4]
+
+
+def test_a_plain_path_of_whole_three_byte_hashes_gets_a_note_and_is_sent_as_given(home, relay, capsys):
+    note = "note: --path A1B2C3 is read as 3 one-byte hops; three-byte hashes are written --path 3:A1B2C3"
+    assert cli.main(["send", "cabin", "ver", "--via", "relay:bench", "--path", "a1b2c3"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"{'':12} {note}"
+    assert relay.forwards[0]["path"] == b"\xA1\xB2\xC3"
+    assert cli.main(["send", "cabin", "ver", "--via", "relay:bench", "--path", "A1B2C3", "--dry-run"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == f"{'':12} {note}" and len(relay.forwards) == 1
+    assert cli.main(["send", "cabin", "ver", "--via", "relay:bench", "--path", "3:A1B2C3"]) == 0
+    assert "note:" not in capsys.readouterr().out
 
 
 def test_the_command_line_refuses_what_a_relay_does_not_carry(home, relay, capsys):

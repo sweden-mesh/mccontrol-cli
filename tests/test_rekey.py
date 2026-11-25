@@ -143,3 +143,9 @@ def test_through_a_relay_the_hop_uses_the_key_the_relay_is_on(store):
     assert rekey._signer(store, store.device("relay")).key_path.name == "key.seed"
     rekey.rotate(store, store.device("relay"), send=scripted({})[0])
     assert rekey._signer(store, store.device("relay")).key_path.name == rekey.NEXT
+
+
+def test_the_text_of_a_send_is_its_result_line_not_the_advice_under_it(store, monkeypatch):
+    lines = ["over the mesh through tcp:x: direct, 2 hop(s)", "solar        no answer", f"{'':12} it may be out of airtime"]
+    monkeypatch.setattr(rekey.actions, "send", lambda *a, **k: (None, None, {}, lines))
+    assert rekey._send(store, store, "rekey", store.device("solar"), via="mesh") == (False, "solar        no answer")
