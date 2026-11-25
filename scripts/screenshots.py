@@ -55,7 +55,9 @@ def key_of(name):
 
 
 def firmware(name, rev):
-    return f"esp32s3-v1.17.1-ar-{rev}-observer-{hashlib.sha256(name.encode()).hexdigest()[:8]}"
+    # The invented fleet runs the released images: lou-20 on most, lou-18 on the two that lag.
+    lou = 20 if rev >= 11 else 18
+    return f"esp32s3-v1.18.0-lou-{lou}-arrc-observer-{hashlib.sha256(name.encode()).hexdigest()[:7]}"
 
 
 def check_invented():
