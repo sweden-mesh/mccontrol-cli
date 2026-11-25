@@ -49,9 +49,13 @@ then the command slot. For the shared command server:
 
   set cmd on
 
-For your own command server (firmware lou-18 and later):
+For your own command server:
 
   set cmd on mqtt.meshcore-vgr.se
+
+Those are the names on lou-20 or later. On lou-19 and older type
+"set mqtt.cmd.pubkey", "set mqtt.cmd on" and (lou-18 and later)
+"set mqtt.cmd on <host>".
 
 On lou-17 and older, use a custom slot (here slot 3; any free one from 2 to 6):
 
@@ -59,8 +63,8 @@ On lou-17 and older, use a custom slot (here slot 3; any free one from 2 to 6):
   set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883
   set mqtt3.audience mqtt.meshcore-vgr.se
   set mqtt3.filter all
-  set cmd.slot 3
-  set cmd on
+  set mqtt.cmd.slot 3
+  set mqtt.cmd on
 
 Then reboot. The node's region comes from "set mqtt.iata VGR". It must
 match the region you give the device here.

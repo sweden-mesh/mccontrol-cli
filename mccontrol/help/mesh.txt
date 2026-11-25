@@ -43,13 +43,14 @@ What the mesh road admits
   Everything else denied stays denied. A command
   is at most 57 bytes to a node on lou-20 or later (sealed) and 59 to
   one on lou-19, checked before it is signed. One node at a time,
-  never a region; the node answers at most one command a minute and ten
-  an hour this way, since each costs airtime on a shared network.
+  never a region. A node's answers share an airtime budget (5 % of 15
+  minutes, then 1 %); a command over it is not answered and "get cmd"
+  counts it as refused. 50 commands an hour on every road.
 
 Answers and silence
   mesh-closed: the node's MQTT works, so it takes commands over MQTT;
   send it there. Silence is not a refusal: a node on older firmware,
-  a bad signature, a replay or the minute budget all say nothing.
+  a bad signature, a replay or the airtime budget all say nothing.
   The first request to a node with no known path floods once; its
   answer teaches your companion a path, and the next one goes direct.
 
@@ -75,18 +76,21 @@ Through a relay
   directly, never a flood. A relay sends one command at a time
   within an airtime budget (about 26 in 15 minutes, then 5 in the
   next 15; a flood at most once a minute) and waits two minutes for
-  the answer. A node answers a flooded command 15 to 30 seconds
-  after it arrives. "no answer" is not a refusal: the node may have run the
-  command. Relaying is on by default. Switch it with
+  the answer. A second one sent before the first is on the air
+  replaces it, and the first is never answered. A node answers a
+  flooded command 15 to 30 seconds after it arrives. "no answer" is
+  not a refusal: the node may have run the command. Relaying is on by default. Switch it with
   "set relay off" or "set relay own"; "get relay"
   shows what is left of the budget.
 
 Mesh-only nodes
   A node built without Wi-Fi (an rc image with no -observer in its
-  version) takes commands over the mesh alone. Its commands are signed
-  for the region named mesh, and it refuses the Wi-Fi and MQTT repair,
+  version) takes commands over the mesh alone. Its commands are sealed
+  to it from lou-20 (lou-19: signed for the region named mesh), and
+  it refuses the Wi-Fi and MQTT repair,
   ota check, ota update, cmd ping and the broker slots' settings
   (set mqttN.*). The command key is set on its
-  console, as on every node.
+  console, as on every node, or the first time by a remote admin
+  login.
 
 Related: [[send]], [[signing]], [[history]].

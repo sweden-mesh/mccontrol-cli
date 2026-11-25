@@ -1,13 +1,13 @@
 # mccontrol-cli
 
-For the people who run MeshCore Observer repeaters: sign a command with a key kept on your
+For the people who run MeshCore repeaters running lou firmware: sign a command with a key kept on your
 machine, send it to one repeater, to the ones you tagged, or to each of your repeaters in an
 area (one command each), see what came back, and keep a history per device. One backend, three interfaces on it, and a
 command line. Python, in a terminal.
 
 What it is not: not a broker, not firmware, and not the browser app. It never changes a
-repeater's key, identity or radio (the deny list keeps those to the serial cable), and it sends
-nothing unless you ask it to.
+repeater's identity or radio; the command key changes only by `rekey`, signed by the key in use.
+It sends nothing unless you ask it to.
 
 mccontrol is four repositories:
 
@@ -195,7 +195,8 @@ mccontrol devices | add | remove | discover | key | keygen | config | test | hel
 
 ## Setting up a repeater
 
-Two lines over its serial console, on the firmware of 2026-10-08 or later (ar-11):
+Two lines over its serial console, on lou-20 or later; on lou-19 and older type
+`set mqtt.cmd.pubkey` and `set mqtt.cmd on`:
 
 ```
 set cmd.pubkey <your 64-hex public key>     # mccontrol key prints it
@@ -238,9 +239,10 @@ lou-19 the `0xC1` above (59 bytes); mccontrol picks per node as it does on MQTT.
 
 Over the mesh the plane admits what it admits over MQTT and, only there, the repair
 (operator ruling 2026-11-16): `set wifi.ssid <v>`, `set wifi.pwd <v>`, `set cmd on [<host>]`.
-Everything else denied stays denied; the command key stays serial-only. A command is at most
-59 bytes, checked before signing; one node at a time, never a region; the node answers at most
-one a minute and ten an hour this way. `mesh-closed` means its MQTT works: send it there. Silence
+Everything else denied stays denied; clearing the command key stays serial-only. A command is at most
+57 bytes (59 to lou-19), checked before signing; one node at a time, never a region; its answers
+share an airtime budget (5 % of 15 minutes, then 1 %); a command over it is not answered and
+`get cmd` counts it as refused; 50 commands an hour on every road. `mesh-closed` means its MQTT works: send it there. Silence
 is not a refusal. A node not yet a contact on the companion is made one, and its first request
 floods once; the answer teaches the companion a path, and the next goes direct.
 
@@ -261,14 +263,15 @@ through that relay uses it (`--path none` for no hops again).
 One node at a time, never an area or a group, and only what the mesh road admits (57 bytes to
 lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The relay must run lou-20
 or later and be on MQTT. It sends one command at a time within an airtime budget (about 26 in 15
-minutes, then 5 in the next 15; a flood at most once a minute) and waits two minutes for the answer. `no answer` is not a refusal: the node may have run the command. Any
+minutes, then 5 in the next 15; a flood at most once a minute) and waits two minutes for the answer;
+a second one sent before the first is on the air replaces it, and the first is never answered. `no answer` is not a refusal: the node may have run the command. Any
 other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
 on by default: `set relay off|own`, and `get relay` shows what is left of the budget.
 History keeps the relay, the route and how well the relay heard the answer.
 
 A **mesh-only** node (an `rc` image built without Wi-Fi: no `-observer` in its version, or a
-device's `mesh_only` flag) takes commands over the mesh alone, signed for
-`meshcore/mesh/{KEY}/cmd`, and refuses the repair, `ota check`, `ota update`, `cmd ping` and
+device's `mesh_only` flag) takes commands over the mesh alone, sealed to it from lou-20 (lou-19: signed for the
+region named mesh), and refuses the repair, `ota check`, `ota update`, `cmd ping` and
 the broker slots' settings (`set mqttN.*`). On an Observer node the mesh road already reaches
 those slot settings, so a broken Observer feed can be repaired over the mesh.
 The bytes are in mccontrol-spec's [wire format](https://github.com/sweden-mesh/mccontrol-spec/blob/main/docs/wire-format.md)
@@ -314,16 +317,17 @@ that hold their public key; the broker stops forgeries and floods, it does not h
    `mccontrol test --region VGR` connects, signs in, publishes and receives there.
 4. **Provision each repeater** over serial: `set cmd.pubkey <your 64-hex public key>`, then
    the command slot. For the shared broker that is `set cmd on`. For a region's own broker,
-   `set cmd on mqtt.meshcore-vgr.se` (firmware lou-18 and later); on lou-17 and older a custom
-   slot (any free one from 2 to 6):
+   `set cmd on mqtt.meshcore-vgr.se`. Those are lou-20's names: on lou-19 and older type
+   `set mqtt.cmd.pubkey`, `set mqtt.cmd on` and (lou-18 and later) `set mqtt.cmd on <host>`. On
+   lou-17 and older a custom slot (any free one from 2 to 6):
 
    ```
    set mqtt3.preset custom
    set mqtt3.server mqtts://mqtt.meshcore-vgr.se:8883
    set mqtt3.audience mqtt.meshcore-vgr.se
    set mqtt3.filter all
-   set cmd.slot 3
-   set cmd on
+   set mqtt.cmd.slot 3
+   set mqtt.cmd on
    reboot
    ```
 

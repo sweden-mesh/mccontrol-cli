@@ -8,7 +8,8 @@ given to it over its serial console:
   set cmd.pubkey <your 64-hex public key>
   set cmd on
 
-On the firmware of 2026-10-08 or later (ar-11) that second line does
+Those are the names on lou-20 or later; on lou-19 and older type
+"set mqtt.cmd.pubkey" and "set mqtt.cmd on". The second line does
 the rest: with no slot configured the node takes its first free MQTT
 slot (3-6), points it at the default broker mqtt-meshcore.louie.se with the
 built-in "mccontrol" preset, and says "reboot to apply". A board without
