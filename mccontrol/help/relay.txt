@@ -1,0 +1,77 @@
+Through a relay
+
+From lou-20 a node of yours that is on MQTT can send a command by radio
+to a node that is not: a mesh-only node (see [[meshonly]]), or one whose
+Wi-Fi or broker has failed (see [[mesh]]). You need no companion radio.
+The node that sends is the relay; the node the command is for is the
+target.
+
+  mccontrol send cabin ver --via relay:loutest
+
+What can be a relay
+  An Observer image with remote control (rc or arrc) on lou-20 or later,
+  on MQTT, holding the SAME command key as the target, and in radio
+  reach of it, directly or over the mesh. A relay serves the holder of
+  its own command key and nobody else. A node without a command key
+  never relays, and a mesh-only node cannot: it has no MQTT.
+
+What the relay does
+  It sends the mesh request the tool built for the target, waits up to
+  two minutes, and returns the target's answer over MQTT. It runs
+  nothing itself and cannot read the request or the answer: both are
+  sealed between the target and you.
+
+The route
+  direct      one transmission, no hops: right when the target hears
+              the relay itself. The default.
+  --path A1B2 direct along the hops you give ("2:A1B2C3D4" for two-byte
+              hashes, "--path none" for no hops again).
+  --route flood       a flood in the relay's region home.
+  --route flood-wide  a flood in the relay's default scope, which is
+                      wider.
+  An answer teaches the path. The next direct send through that relay
+  uses it. A flood costs every repeater that hears it airtime, so flood
+  once to learn the way, then send direct.
+
+One command at a time
+  A relay holds one command. A second one that arrives before the first
+  is on the air replaces it, and the first is never answered. Send one
+  and wait for its answer. One node at a time: never a region, a county
+  or a group.
+
+The relay's budget
+  Airtime: 5 % of 15 minutes (45 s on the air, about 26 commands), then
+  1 % of the next 15 minutes (9 s, about 5), then a burst again.
+  Floods: one a minute in a burst, one in five minutes after it, 100 a
+  day, and two an hour for floods that leave the relay's region home.
+  The budget is fixed. A restart of the relay opens a new burst.
+  "get relay" sent to the relay shows what is left:
+    > own, forwarded 3, answered 2, refused 1, burst, 39.9 s airtime
+    left, floods today 1 of 100
+
+What comes back
+  The target's answer, with how well the relay heard it. Or one word
+  from the relay:
+    no answer     sent, nothing came back. Not a refusal: the target
+                  may have run the command. See [[mesh]], "No answer".
+    rate-limited  the relay's budget is used up. Wait a few minutes.
+    busy          another command was waiting on the relay.
+    off           relaying is switched off on the relay.
+    clock-unset   the relay has no clock yet.
+    expired, replay, bad-body, send-failed   nothing was sent.
+  With every word but "no answer", nothing went on the air.
+
+Switch relaying
+  It is on by default. "set relay off" stops a node relaying, "set
+  relay own" turns it on again. Both travel over the plane, so no visit
+  is needed.
+
+Who picks the relay
+  On the command line you name the relay; --via auto never takes one.
+  The web app's Auto may take a relay that hears the target directly,
+  when no companion is connected, and never by a flood.
+
+History keeps the relay, the route, how the command was sent and how
+well the relay heard the answer (see [[history]]).
+
+Related: [[mesh]], [[meshonly]], [[send]], [[cli]].

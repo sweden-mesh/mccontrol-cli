@@ -15,14 +15,42 @@ slot (3-6), points it at the default broker mqtt-meshcore.louie.se with the
 built-in "mccontrol" preset, and says "reboot to apply". A board without
 PSRAM runs two slots at once; if both are its analyzer uplinks, the node
 says so and asks you to turn one off (set mqtt2.preset none) -- it never
-does that for you. A slot for a region's own command broker is set by
-hand (set mqttN.preset custom, server, audience; set cmd.slot N);
-[[ownregion]] has the lines.
+does that for you. A region's own command broker takes "set cmd on
+<host>" instead; [[ownregion]] has the lines. A board without Wi-Fi
+takes the same two lines and answers "mesh only" to "get cmd"; see
+[[meshonly]].
 
-Each interface shows that command on one line, creates a key when there
-is none, imports an existing seed, and replaces the key -- which
-silences every repeater provisioned with the old one until each is
-re-provisioned. Where this is in your interface is in [[keys]].
+The first key without a cable (lou-20)
+  A remote admin, logged in to the node over the mesh with its admin
+  password, may type "set cmd.pubkey <key>" too, so a board on a mast
+  needs no climb. Only the first key: replacing or clearing one stays
+  on the USB console. The node refuses while its admin password is the
+  default, is shorter than 8 characters, or is the same as the guest
+  password, and says which. This tool does not log in as an admin; use
+  the MeshCore app's remote management.
+
+Replacing the key
+  Each interface shows the two lines above, creates a key when there
+  is none, imports an existing seed, and replaces the key -- which
+  silences every repeater provisioned with the old one. Where this is
+  in your interface is in [[keys]]. Move the nodes first:
+  From lou-20, "rekey <new public key>", signed by the key in use, on
+  MQTT or the mesh. The new key waits on the node for 60 minutes, or
+  until it restarts. It takes over the moment a command arrives that
+  the new key signed; if none comes, it is forgotten and nothing has
+  changed. So a mistyped or lost key does no harm.
+    python -m mccontrol.rekey start     make the next key; sends nothing
+    python -m mccontrol.rekey send <node> --via relay:<relay>
+                                        nodes behind a relay first
+    python -m mccontrol.rekey send --all   then every node on MQTT
+    python -m mccontrol.rekey status
+    python -m mccontrol.rekey finish    the next key becomes yours
+  A node that did not answer keeps the key in use; run send for it
+  again within the hour. "abort" forgets the next key while no node has
+  taken it. The web app has no rekey of its own yet: rotate here, then
+  move the key there with a backup file.
+  A node on lou-19 or older, and a key you no longer hold, need the new
+  key on the USB console.
 
 The seed is never shown and never leaves the machine inside anything but
 a signature. "refused: sig-invalid" from a node means it holds a

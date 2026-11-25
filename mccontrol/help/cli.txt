@@ -6,11 +6,14 @@ The same work without the screens:
   mccontrol key                         print the public key
   mccontrol config --username u --password p [--broker h --port n]
   mccontrol test                        test the control broker
-  mccontrol discover JKG [--add]        find the nodes there that accept your key
-  mccontrol add <name> <8-hex node> <region> [notes]
+  mccontrol discover [--add]            your lou-20 nodes, from their alive
+  mccontrol discover JKG [--add]        lou-19 and older, by region
+  mccontrol add <name> <64-hex key>     by its whole key, no region (lou-20)
+  mccontrol add <name> <8-hex node> <region> [notes]     (lou-19 and older)
   mccontrol devices                     list your devices
   mccontrol send loutest region put se-jkp '*'
-  mccontrol send JKG region allowf se-jkp --all
+  mccontrol send JKG region allowf se-jkp --all    each of your nodes in JKG
+  mccontrol send se-jkp ver --county    each node with that region home
   mccontrol send loutest region --dry-run     sign and print, send nothing
   mccontrol regions loutest             read the map
   mccontrol group create canary loutest gisebo   a named group of devices
@@ -23,8 +26,11 @@ The same work without the screens:
   mccontrol send loutest ver --via auto       the mesh when MQTT has failed
   mccontrol send cabin ver --via relay:loutest    loutest sends it by radio
   mccontrol send cabin ver --via relay:loutest --route flood
+  mccontrol send cabin time now --via relay:loutest    mend its clock
+  python -m mccontrol.rekey start|send|status|finish   a new key, no visit
   mccontrol help [topic]                this help as text
 
 A device is named by its name or by any unique prefix of its name or id.
 Commands that take something away ask on the command line too; --yes
-skips the question. Back to [[index]].
+skips the question. The roads are in [[mesh]] and [[relay]], the key
+rotation in [[signing]]. Back to [[index]].

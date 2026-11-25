@@ -4,13 +4,24 @@ The broker is not trusted. Its credentials are shared, so assume anyone
 can read every topic and publish to every topic. What stops them is
 checked on the repeater, and only there.
 
+On lou-20 and later
+  A command is sealed to one node and signed inside. The signature
+  covers the node's own key, the road (MQTT or mesh), the counter, the
+  expiry, the reply id and the command, so a command for one node
+  verifies on no other, and one sent over MQTT is never taken as a mesh
+  one. Commands and answers are encrypted between the node and you: the
+  broker reads none of it and cannot tell which nodes are yours. There
+  is no broadcast topic. The counter and the expiry work as below. What
+  follows describes the old scheme of lou-19 and older, which a lou-20
+  node with an IATA code also accepts until lou-21.
+
 What the signature covers
   The repeater verifies an Ed25519 signature over the topic, a newline,
   and "v1|counter|expiry|command". Every byte of that is covered, so a
   changed counter, a longer expiry, a different command, a touched
   signature, or the same payload on another node's topic, another
   region's topic or the broadcast topic all fail with sig-invalid. Only
-  the one public key the repeater was given over its serial console
+  the one public key the repeater was given (see [[signing]])
   verifies; the key on this machine never leaves it inside anything but
   a signature.
 
@@ -33,9 +44,11 @@ Why the expiry matters as well
   refuses rather than guesses.
 
 What this does not give you
-  Secrecy: commands and replies are readable by anyone on the broker.
-  Nothing secret travels in a command; the settings that would be
-  (the signing key, the identity key, erase) are not admitted at all.
+  Secrecy, on lou-19 and older: commands and replies are readable by
+  anyone on the broker (from ar-13 a command to a node whose whole key
+  is known goes encrypted). Nothing secret travels in a command; the
+  settings that would be (the signing key, the identity key, erase)
+  are not admitted at all.
   Delivery: the broker can drop or delay a command. That shows as
   silence or as expired, never as a wrong command running.
   Trustworthy results from older firmware: up to ar-10 a result line
@@ -46,9 +59,11 @@ What this does not give you
   unmarked line is an r1 from older firmware -- confirm those with a
   read whose answer you can judge.
   A stolen key: whoever reads key.seed can sign as you. It is kept
-  readable only by you; replacing it (see [[signing]]) silences every
-  repeater until each is re-provisioned over serial (lou-20:
-  python -m mccontrol.rekey).
+  readable only by you. From lou-20, rotate it with rekey before the
+  thief does (python -m mccontrol.rekey, see [[signing]]): whoever holds
+  a node's command key can replace it first, and then only a serial
+  visit gets the node back. On lou-19 and older, replacing the key
+  silences every repeater until each is re-provisioned over serial.
 
 How this is checked
   tests/test_envelope.py builds envelopes and judges them the way the

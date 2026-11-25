@@ -19,10 +19,16 @@ cannot be chosen, and the list says how many there are, what the device
 reports (ar-10, or "unknown", which counts as the oldest) and that
 reading names and versions fills it in. The fleet runs several firmware
 versions for months, so this is how a command slot is never spent on a
-not-allowed. ar-10, the build in the field, admits the auto-reply
+not-allowed. ar-10, the oldest build the list knows, admits the auto-reply
 settings, the two triggers and a dozen reads; ar-11 admits everything
 on the deny list's far side (ver, get name, get stats, the region map,
-the tuning writes, reboot...). To make the grey go away, flash.
+the tuning writes, reboot...); lou-20 adds get sensors, get relay and
+set relay. To make the grey go away, flash.
+
+The list does not hold every setting. One that is not in it is typed
+as a "set" or "get" with its name: set alive.interval 30, set
+autoreply.national off, get cmd.mesh. [[commands]] names the ones that
+came with lou-20.
 
 From lou-14 a version also says which features the image was built
 with (ar auto-reply, rc this command plane): esp32s3-v1.17.1-lou-14-arrc-

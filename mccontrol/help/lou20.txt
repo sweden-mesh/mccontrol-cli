@@ -1,0 +1,64 @@
+lou-20: what changed, and upgrading
+
+Firmware lou-20 (v1.18.0-lou-20) changed how a node is reached and what
+its settings are called. This tool speaks both the new scheme and the
+old one, and picks per node by the node's version.
+
+The settings have new names
+  Remote control works without Wi-Fi or MQTT now, so its settings are
+  no longer called mqtt.cmd. On lou-20 the old names are gone: the node
+  answers them as unknown.
+
+    lou-19 and older            lou-20
+    set mqtt.cmd on [<host>]    set cmd on [<host>]
+    set mqtt.cmd off            set cmd off
+    get mqtt.cmd                get cmd
+    set mqtt.cmd.pubkey <key>   set cmd.pubkey <key>
+    get mqtt.cmd.pubkey         get cmd.pubkey
+    set mqtt.cmd.slot <n>       set cmd.slot <n>
+    mqtt.cmd ping               cmd ping
+
+  Relaying is "set relay off|own", outside cmd. A node on lou-19 or
+  older knows only the old names: type those there.
+
+Upgrading a node
+  The settings carry over: the command key, its counter and the slot.
+  Only what you type has changed. Nothing needs to be set again, with
+  one exception: a lou-18 node set with "set mqtt.cmd on <host>" lost
+  that slot at its next reboot (a fault in lou-18). Type "set cmd on
+  <host>" once more after the upgrade to stay on that server, or the
+  bare "set cmd on" for the shared broker, which is where this tool
+  reaches a lou-20 node (see [[ownregion]]).
+  A lou-19 Observer node takes "ota update" over the old scheme, comes
+  back on lou-20, and the tool moves to the new scheme at its first
+  alive message. Rolling back to lou-18 keeps the key, counter and slot.
+
+The old scheme stays until lou-21
+  A lou-20 node with an IATA code (mqtt.iata) still accepts everything
+  lou-18 did, on meshcore/<IATA>/<key>/cmd. lou-21 removes that. The
+  tool sends the new scheme to a node whose alive message opened with
+  your key or whose version is lou-20 or later, and the old one to
+  every other node, on its stored region. The device view says which.
+
+Gone already
+  A command to a whole region at once. A send to a region or a county
+  is now one command per node, spaced apart (see [[send]]).
+
+New in lou-20, and where it is explained
+  No region          a node is reached by its key alone and needs no
+                     IATA code. See [[devices]] and [[protocol]].
+  Alive messages     your Observer nodes appear by themselves. See
+                     [[discover]].
+  Mesh-only nodes    remote control on boards without Wi-Fi. See
+                     [[meshonly]].
+  The relay          a node on MQTT sends your command by radio. See
+                     [[relay]].
+  Over the mesh      repair, silence and answers, "time now". See
+                     [[mesh]].
+  rekey              a new command key without a visit, and the first
+                     key from an admin login. See [[signing]].
+  New commands       get sensors, set alive.interval, set
+                     autoreply.national, cmd.debug, and the limits (50
+                     commands an hour). See [[commands]].
+
+Related: [[index]], [[ownregion]].

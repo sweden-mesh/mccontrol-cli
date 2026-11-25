@@ -3,12 +3,19 @@ The envelope
 lou-20 and later (mcc3): a command is sealed to one node and published on
 mcc/cmd/<KEY>, its whole key; no IATA, no region, no broadcast. It is
 encrypted (ChaCha20-Poly1305, a key from X25519 of the node's key and
-yours) and signed inside by your key over the node's key, a counter, the
-expiry and a reply id. The result comes back sealed to you on
-mcc/r/<reply id>, a topic drawn for each session and named only inside
-the command. Each node keeps a sealed alive message on mcc/alive/<KEY>
-that only your key opens. The broker login is a throwaway key per
-session. mccontrol-spec's wire format has the bytes.
+yours) and signed inside by your key over the node's key, the road (MQTT
+or mesh), a counter, the expiry and a reply id. The result comes back
+sealed to you on mcc/r/<reply id>, a topic drawn for each session and
+named only inside the command. Each node keeps a sealed alive message on
+mcc/alive/<KEY> that only your key opens. The broker login is a
+throwaway key per session. Over the mesh the same signed command travels
+as a sealed request to the node, and its answer is sealed to you. A
+command through a relay is that mesh request wrapped in a forward,
+sealed to the relay on the relay's own mcc/cmd/<KEY>; the relay cannot
+read what it carries. mccontrol-spec's wire format has the bytes.
+
+A lou-20 node with an IATA code also accepts the old scheme below, until
+lou-21 (see [[lou20]]).
 
 lou-19 and older, the old scheme:
 

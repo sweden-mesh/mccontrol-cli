@@ -7,6 +7,7 @@ EXCEPT a deny list. A command must start with one of the verbs
   set  get  region  trigger test  trigger private  neighbor.remove
   sensor  gps  powersaving  clock          (with their arguments)
   ver  reboot  clkreboot  neighbors  board  memory  clear stats  ota check
+  ota update  cmd ping  rekey <key>
 
 and must match nothing on the deny list. This tool knows the list and
 says why before signing, so a refused command costs no command slot:
@@ -25,14 +26,21 @@ says why before signing, so a refused command costs no command slot:
                   set dutycycle, tempradio
   transmissions   advert*, alert *, set advert.interval,
                   set flood.advert.interval   (trigger is the one sanctioned transmit)
-  the clock       time <epoch>                (clock sync is fine)
+  the clock       time <epoch>                (clock sync is fine; over the
+                                              mesh "time" is admitted)
   serial-only     log, stats-*
+
+"set cmd" and "get cmd.pubkey" are the names on lou-20; on lou-19 and
+older the same settings are "mqtt.cmd", denied in the same way (see
+[[lou20]]). Over the mesh, and only there, the repair is admitted too:
+set wifi.ssid, set wifi.pwd, set cmd on [<host>] and "time" (see
+[[mesh]]).
 
 What that leaves is most of what you want: every tuning setting
 (txdelay, rxdelay, af, cad, int.thresh, flood.max, path.hash.mode,
 loop.detect, ...), every mqtt.* and mqttN.* setting so a broker can be
-replaced without a visit, set name, the auto-reply family, the region
-map, reboot, and every read that names no secret.
+replaced without a visit, set name, set relay, the auto-reply family,
+the region map, reboot, and every read that names no secret.
 
 The ones used most:
 
@@ -45,21 +53,84 @@ The ones used most:
   region save              keep the map after a reboot
   set autoreply on|off     answer test requests, or not
   set autoreply.<x> <v>    hops, direct.flood, slot, window, slots,
-                           region, mode, private
+                           region, mode, private, national
   get autoreply[.<x>]      read them back
   trigger test [<id>] [F|P|D|S]      originate a test probe
   trigger private <64hex> [<id>]     a test request to one repeater
   ver / get name / neighbors / get radio / get repeat / reboot
 
+New with lou-20 (a setting not in the command list is typed as a "set"
+or "get" with its name):
+
+  get cmd                  the plane's state on the node: on or "mesh
+                           only", the counter, the slot, the last
+                           command, and for the mesh road how many
+                           requests were answered and refused
+  get sensors              what the node measures, on either road:
+                           > batt=3881mV mcu=21.5C temp=23.5C hum=40.5%
+  get relay, set relay off|own
+                           whether the node relays your commands, and
+                           what is left of its budget (see [[relay]])
+  set alive.interval <5-1440>
+                           minutes between a node's alive messages,
+                           default 15 (see [[discover]])
+  set autoreply.national auto|off|<region>
+                           the node also answers "test" on the national
+                           test channel (#test-se in Sweden). auto, the
+                           default, finds the country in the node's
+                           region table; off stops it; a region name,
+                           which must be in the table, sets it by hand.
+                           "get autoreply.national" shows what it comes
+                           to. Replies there cost the whole country
+                           airtime: send one test, wait two minutes, do
+                           not repeat it.
+  get cmd.mesh             when the mesh road is open: off, on or auto
+                           (see [[mesh]])
+  rekey <new public key>   replace the command key without a visit;
+                           "python -m mccontrol.rekey" does it for you
+                           (see [[signing]])
+  time now                 over the mesh only: mend a clock that fell
+                           behind (see [[mesh]])
+
+On the node's console only, never over the plane:
+
+  set cmd.debug on|off     prints one line, "mcc: ...", for each command
+                           or relayed request the node hears and where
+                           it stopped: not listening, refused and why,
+                           run, answered, the airtime sent. No key and
+                           no command text. Until the next restart. The
+                           relay's and the target's lines carry the
+                           request's counter, so one command can be
+                           followed across both. "get cmd.debug" says
+                           which.
+  set cmd.pubkey, set cmd on, set cmd.slot, set cmd.mesh
+                           the plane's own settings (see [[signing]]).
+                           cmd.mesh also from an admin login, and
+                           "set cmd on" over the mesh as a repair.
+
+Limits a node keeps, also for validly signed commands
+  50 commands an hour per node (10 before lou-20), on every road. The
+  hour slides: no span of 60 minutes holds more. Over it the node
+  answers rate-limited; a refused command spends nothing.
+  2 transmits an hour per node (trigger), counted apart.
+  Over the mesh, an airtime budget for the answers (see [[mesh]]).
+  A relay keeps a budget of its own (see [[relay]]).
+  Password logins to a node (admin or guest, over the mesh) are
+  throttled from lou-20: 5 wrong passwords and that sender is refused
+  for 10 minutes. This tool never logs in with a password; the limit
+  matters when you give a node its first key as an admin.
+
 A region tree line with "|" (region def a|* b|*) cannot travel: "|" is the
 envelope's field separator. Add names one at a time with region put.
 
-"trigger" commands transmit on the air and are refused as a broadcast.
+"trigger" commands transmit on the air and go to one device only, never
+to a region. In an rc image without auto-reply the triggers and the
+autoreply settings are refused as not-allowed.
 trigger private is answered only when the asking node and the target speak
 the same private-test sub-type: 0x04 up to ar-13, 0xF0 from lou-14, with
 no overlap. When both versions are known and differ, the tool says before
 the results that no answer will come; flash the older one.
-A node on the ar-10 firmware (the build in the field) admits only the
+A node on the old ar-10 firmware admits only the
 auto-reply family, the triggers and a dozen reads, and answers
 not-allowed to the rest; the command list greys those out for it (see
 [[commandlist]]), and "mccontrol commands <device>" marks them. A

@@ -32,11 +32,13 @@ mcc3; mccontrol-spec's wire format has the bytes):
   reply topic named only inside the command. The broker sees neither the command nor who sent
   it: mccontrol signs in with a throwaway key drawn for each session. There is no IATA, no
   region and no broadcast topic, and every node uses the shared broker.
-- **Discovery from alive.** Each lou-20 node keeps a sealed "alive" message on the broker
-  (`mcc/alive/<KEY>`, every 15 minutes and at boot) that only its owner's key opens.
+- **Discovery from alive.** Each lou-20 Observer node keeps a sealed "alive" message on the broker
+  (`mcc/alive/<KEY>`, soon after it connects and then about every 15 minutes; `set alive.interval
+  <5-1440>` changes that) that only its owner's key opens.
   `mccontrol discover` (no region) reads them all and lists the nodes that are yours, wherever
   they are: online, offline (the broker cleared its alive), or no longer yours (rekeyed).
-  Nothing is sent. `--add` keeps them; a node found this way needs no region.
+  Nothing is sent. `--add` keeps them; a node found this way needs no region. A node without
+  Wi-Fi sends no alive message and is never discovered: add it by its key (below).
 - **An area is one command per node.** `send <IATA> ... --all` and `send <county> ... --county`
   (a node's own `region home`, from its alive) send each of your devices there its own
   command, in random order, spaced 10-90 s apart (5-30 min for a restart), so the fleet does
@@ -47,6 +49,21 @@ mcc3; mccontrol-spec's wire format has the bytes):
   discovery, a signed read to that region, which only lou-19 and older still answer. A lou-19
   node takes `ota update` over the old scheme, comes back on lou-20, and moves to mcc3 by itself
   at its first alive. lou-21 removes the old scheme; mccontrol drops it after that.
+- **The settings have new names.** On lou-20 the plane's settings are `cmd` (`set cmd on`,
+  `set cmd.pubkey`, `get cmd`, `cmd ping`), and the old `mqtt.cmd` names are gone: the node
+  answers them as unknown. The stored settings carry over, the key and its counter included. One
+  exception: a lou-18 node set with `set mqtt.cmd on <host>` lost that slot at its reboot and
+  needs `set cmd on <host>` (or the bare `set cmd on`) once more. On lou-19 and older, type the
+  old names. `mccontrol help lou20` has the table.
+- **Boards without Wi-Fi, and the relay.** The `rc` and `arrc` images for stock MeshCore boards
+  take commands over the mesh alone, from your companion radio or through a relay: one of your
+  Observer nodes on MQTT that sends the command by radio
+  ([below](#a-node-without-wi-fi-mesh-only), `mccontrol help meshonly`, `mccontrol help relay`).
+- **New commands and limits.** `get sensors`; `set alive.interval`; `set autoreply.national
+  auto|off|<region>` (the national test channel); `rekey` ([below](#replacing-your-key-without-visiting-the-nodes-lou-20-and-later));
+  `time now` over the mesh for a clock that fell behind; `set cmd.debug on|off` on the node's
+  console. A node takes 50 commands an hour (10 before). A setting the command list does not
+  hold is typed as a `set` or `get` with its name. `mccontrol help commands` has them all.
 
 ## The backend and the API
 
@@ -169,7 +186,7 @@ columns the directory shows.
   Beacon server holds (read-only HTTP, no credentials): the status block with the sample's age
   and the telemetry history.
 - **Help.** Topics with cross-links, a command reference, and the same text on the command line:
-  `mccontrol help commands`.
+  `mccontrol help commands`; for lou-20, `mccontrol help lou20`, `meshonly`, `relay` and `mesh`.
 
 ## The command line
 
@@ -203,11 +220,38 @@ set cmd.pubkey <your 64-hex public key>     # mccontrol key prints it
 set cmd on                                  # takes a free slot, points it at mqtt-meshcore.louie.se; reboot
 ```
 
-The node answers `OK - slot 3, mccontrol (mqtts://mqtt-meshcore.louie.se:8883), packets off; reboot to
+The node answers `OK - slot 3, mccontrol (mqtts://mqtt-meshcore.louie.se:8883), packets on; reboot to
 apply`. A board without PSRAM runs two MQTT slots at once; with both analyzer uplinks up it
 says so and asks you to turn one off (`set mqtt2.preset none`) rather than doing it for you.
 Then `mccontrol register` once per key, so the broker checks your commands before they fan out.
-For a region with its own broker, see the next section.
+For a region with its own broker, see [Your own region](#your-own-region).
+
+**The first key without a cable (lou-20).** A remote admin, logged in to the node over the mesh
+with its admin password, may type `set cmd.pubkey <key>` too. Only the first key: replacing or
+clearing one stays on the USB console. The node refuses while its admin password is the default,
+shorter than 8 characters or the same as the guest password. mccontrol does not log in as an
+admin; use the MeshCore app's remote management.
+
+### A node without Wi-Fi (mesh only)
+
+From lou-20 the `rc` and `arrc` images for stock MeshCore boards (nRF52, RP2040, STM32, an ESP32
+built as a plain repeater) take the same signed commands over the mesh alone.
+
+```
+set cmd.pubkey <your 64-hex public key>     # on its console
+set cmd on                                  # get cmd then says: mesh only
+```
+
+```
+mccontrol add cabin <the node's 64-hex public key>     # no region; it is never discovered
+mccontrol send cabin ver --via relay:loutest           # through an Observer node of yours, or
+mccontrol send cabin ver --via mesh                    # through your companion radio
+```
+
+The first answer carries the version, and from it mccontrol knows the node is mesh only: `--via
+auto` then takes the mesh, and a send over MQTT is refused before signing. Such a node has no
+clock source (`time now`, below), no `cmd.mesh` setting (its road is always open), and is updated
+by USB or Bluetooth as before. `mccontrol help meshonly` is the same text.
 
 ## Repair a node over the mesh
 
@@ -219,7 +263,8 @@ signature and counter as on MQTT, so a command delivered both ways runs once; th
 back over the air, encrypted to you by the node. `mccontrol help mesh` is the same text.
 
 **Switch on while it works.** The node's `cmd.mesh` is `auto` by default: the road opens
-once MQTT has been down 15 minutes (`on` keeps it open, `off` shuts it; set on the console only).
+once MQTT has been down 15 minutes (`on` keeps it open, `off` shuts it; set on the console or
+from an admin login, never over the plane).
 Check it now with `mccontrol group send <group> get cmd.mesh`. Each device needs its whole
 public key (discovery stores it; `PATCH /devices/{ref}` with `key` otherwise). Set your companion
 once: `mccontrol config --companion tcp:HOST:PORT` (a Wi-Fi companion, see below; or
@@ -246,6 +291,20 @@ share an airtime budget (5 % of 15 minutes, then 1 %); a command over it is not 
 is not a refusal. A node not yet a contact on the companion is made one, and its first request
 floods once; the answer teaches the companion a path, and the next goes direct.
 
+**No answer** is one of two things. The packet was lost, on the way out or on the way back (then
+the command may have run: read the setting back before sending a change again). Or the node chose
+not to answer: its answer airtime is used up (wait a few minutes), the request was not signed by
+its key, or it was a replay. `get cmd` tells them apart: its line ends `mesh <mode> ok <n> refused
+<n>`, and a request over the budget is counted under `refused`; a lost packet is counted nowhere.
+A node answers a flooded request 15 to 30 s after it arrives, and that answer teaches the way
+back, so later requests and answers go direct. A path that stopped working shows as no answer to
+a direct command; one flooded command renews it.
+
+**A clock that fell behind.** A node without Wi-Fi has no time source, and one whose clock has
+fallen behind refuses every command as `expiry-too-far`. `mccontrol send cabin time now --via mesh`
+(or `--via relay:<device>`) sends this computer's time as `time <epoch>`: over the mesh only,
+never over MQTT, lou-20 or later, forward only.
+
 `--via auto` takes the mesh for a mesh-only node, a command only the mesh admits, a node whose
 status Beacon (else its last MQTT answer) has not seen for `mesh_after_mins` (15), or a broker
 that cannot be reached; otherwise MQTT, and MQTT again after a `mesh-closed`. History records
@@ -254,7 +313,9 @@ the road of every command (`mqtt`, `mesh` or `relay`).
 ### Through a relay (lou-20)
 
 A node of yours on MQTT can send the mesh request for you, so no companion is needed:
-`mccontrol send cabin ver --via relay:loutest`. The relay sends it direct with no hops, which is
+`mccontrol send cabin ver --via relay:loutest`. The relay is an Observer `rc` or `arrc` image that
+holds the same command key as the target and is in radio reach of it; it serves that key only,
+runs nothing itself and cannot read what it carries. The relay sends it direct with no hops, which is
 right when the node hears the relay itself. Further away, give the hops (`--path A1B2`, or
 `2:A1B2C3D4` for two-byte hashes) or flood once: `--route flood` stays in the relay's region home,
 `--route flood-wide` uses its default scope. An answer teaches the path; the next direct send
@@ -262,8 +323,9 @@ through that relay uses it (`--path none` for no hops again).
 
 One node at a time, never an area or a group, and only what the mesh road admits (57 bytes to
 lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The relay must run lou-20
-or later and be on MQTT. It sends one command at a time within an airtime budget (about 26 in 15
-minutes, then 5 in the next 15; a flood at most once a minute) and waits two minutes for the answer;
+or later and be on MQTT. It sends one command at a time within an airtime budget (5 % of 15
+minutes, about 26 commands, then 1 % of the next 15, about 5; floods one a minute, then one in
+five minutes, 100 a day) and waits two minutes for the answer;
 a second one sent before the first is on the air replaces it, and the first is never answered. `no answer` is not a refusal: the node may have run the command. Any
 other word from the relay (`rate-limited`, `busy`, `off`, ...) means nothing was sent. Relaying is
 on by default: `set relay off|own`, and `get relay` shows what is left of the budget.
@@ -445,5 +507,6 @@ python -m mccontrol.rekey finish                             # the next key beco
 
 Per node it sends `rekey <new public key>` signed with the key in use, then `ver` signed with the
 next key. The node takes the next key only when that second command arrives, so a lost or mistyped
-key changes nothing. A node that did not answer keeps the key in use; run `send` for it again
-within the hour. `abort` forgets the next key while no node has taken it.
+key changes nothing: the node holds the next key for 60 minutes, or until it restarts, and then
+forgets it. A node that did not answer keeps the key in use; run `send` for it again
+within the hour. A node on lou-19 or older takes a new key on its USB console only. `abort` forgets the next key while no node has taken it.

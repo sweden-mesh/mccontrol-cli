@@ -17,14 +17,19 @@ Doing things
   [[discover]]    find the repeaters that accept your key
   [[devices]]     add, edit, forget; names and regions
   [[history]]     what was sent and what came back
-  [[mesh]]        repair a node over the mesh when its Wi-Fi or MQTT fails
+  [[mesh]]        repair a node over the mesh when its Wi-Fi or MQTT fails;
+                why a command over the mesh gets no answer
+  [[relay]]       a node of yours on MQTT sends the command by radio
+  [[meshonly]]    set up and reach a node without Wi-Fi
   [[reads]]       last answers: what the device last answered to each read
   [[stats]]       a device's statistics: battery, airtime, noise floor, from Beacon
 
 Reference
-  [[commands]]    the commands a repeater admits over the control plane
+  [[lou20]]       firmware lou-20: the new names, upgrading, what is new
+  [[commands]]    the commands a repeater admits over the control plane,
+                and the limits it keeps
   [[cautions]]    the commands that take something away
-  [[signing]]     your key, provisioning a repeater, what the signature covers
+  [[signing]]     your key, provisioning a repeater, replacing the key (rekey)
   [[assurance]]   can a command be forged, altered or replayed? what is not covered
   [[broker]]      the control broker, its credentials, the connection test
   [[ownregion]]   your own region: the shared broker or the region's own

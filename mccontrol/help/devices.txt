@@ -13,6 +13,10 @@ A node on lou-20 or later needs no region: it is reached by its whole
 key alone, wherever it is. A device on lou-19 or older is reached
 through its region; with none it cannot be sent to, so give it one.
 
+A node without Wi-Fi (mesh only) is never found by a discovery. Add it
+by its whole public key, with no region: "mccontrol add <name> <64
+hex>". [[meshonly]] has the steps.
+
 Back to [[index]].
 
 Names and versions from the fleet. Reading names and versions sends "get

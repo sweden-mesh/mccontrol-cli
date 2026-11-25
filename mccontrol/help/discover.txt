@@ -9,6 +9,19 @@ need none. "mccontrol discover" (no region) does this on the command
 line, "--add" keeps what it finds; each interface's discover key does the
 same ([[keys]]).
 
+An Observer node with a command key publishes its alive message soon
+after it connects, then about every 15 minutes, so a node you have just
+set up appears by itself within a few minutes. It carries the node's
+version, region home, name, uptime, clock and how the plane is set.
+"set alive.interval <5-1440>" changes the minutes between them and
+travels over the plane; "get alive.interval" reads it. The broker clears
+the message when the node drops off, which is what "offline" means. After
+a network drop a node is back after about 3 minutes.
+
+A mesh-only node, one without Wi-Fi, is never discovered: it has no MQTT
+and sends no alive message. Add it by its public key; see [[meshonly]].
+A node without a command key sends none either.
+
 Nodes on lou-19 or older publish no alive message and are found by
 region, the only place a region is still asked for: "mccontrol discover
 <region>", or the interfaces' "discover a region (lou-19 and older)". It
@@ -28,4 +41,4 @@ On lou-19 and older, a second read, "get name", fills in names on
 firmware that admits it; older firmware refuses it and those nodes stay
 unnamed.
 
-Related: [[devices]], [[signing]].
+Related: [[devices]], [[signing]], [[lou20]].

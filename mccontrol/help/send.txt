@@ -17,7 +17,17 @@ The device view says which.
 Commands that take something away ask first; see [[cautions]]. For what a
 repeater admits, see [[commands]]. A refusal is explained in words:
 "refused: not-allowed" means the firmware does not admit that command;
-"rate-limited" means wait a few minutes; "sig-invalid" means the node
-holds a different public key than yours (see [[signing]]).
+"rate-limited" means the node's budget is used up (50 commands an hour
+from lou-20, 10 before), so wait a few minutes; "sig-invalid" means the
+node holds a different public key than yours (see [[signing]]);
+"expiry-too-far" means the node's clock is behind (see [[mesh]], "time
+now").
 
-Related: [[history]], [[protocol]], [[mesh]] (a node off MQTT).
+The roads. A command goes over MQTT unless you say otherwise. A node off
+MQTT is reached over the mesh, through your companion radio ([[mesh]])
+or through a relay, a node of yours on MQTT that sends it by radio
+([[relay]]). A node without Wi-Fi is reached only that way
+([[meshonly]]). Over the mesh, no answer is not a refusal; [[mesh]]
+says what it can mean.
+
+Related: [[history]], [[protocol]], [[lou20]].

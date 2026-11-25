@@ -4,14 +4,17 @@ When a repeater's Wi-Fi or MQTT fails -- a new Wi-Fi password, a moved
 access point, a renamed broker -- it drops off the control plane, but its
 radio is still on the mesh. From lou-19 a node with the plane (rc) also
 takes your signed commands as a LoRa request, sent through your own
-companion radio. Same key, same signature, same counter: a command
-delivered both ways runs once. The answer comes back over the air.
+companion radio or, from lou-20, through a relay (see [[relay]]). Same
+key, same signature, same counter: a command delivered both ways runs
+once. The answer comes back over the air. A node without Wi-Fi is
+reached this way always; see [[meshonly]].
 
 Switch on while it works
   The node's mesh road is the setting cmd.mesh: auto (the default)
   opens it once MQTT has been down 15 minutes; on keeps it open; off
   shuts it. Check it now, while MQTT works: send "get cmd.mesh".
-  If a node says off, set it on its console. A device group (see
+  "set cmd.mesh off|on|auto" is typed on the node's console or from an
+  admin login; it does not travel over the plane. A device group (see
   [[cli]]) reads it from every node in one go.
   Make sure each device has its whole public key (discovery stores it):
   the request is encrypted to that key.
@@ -22,37 +25,74 @@ Switch on while it works
   port 5000 and serves one client: each mesh command drops whatever held
   it (the phone app). To share it, put a mux in front and give mccontrol
   the mux's port (tcp:<host>:5001). The web app reaches it through
-  mccontrol-bridge.
+  mccontrol-bridge, or connects a companion by USB or Bluetooth.
 
 The recipe
-  1. Connect your companion, in reach of the node or of the mesh.
+  1. Connect your companion, in reach of the node or of the mesh. Or
+     name a relay: --via relay:<device> in place of --via mesh.
   2. Send the repair over the mesh:
        mccontrol send loutest set wifi.ssid HomeNet --via mesh
        mccontrol send loutest set wifi.pwd s3cret --via mesh
      or point the command slot at the broker:
-       mccontrol send loutest set cmd on mqtt-meshcore.louie.se --via mesh
+       mccontrol send loutest set cmd on --via mesh
+       mccontrol send loutest set cmd on mqtt.example.se --via mesh
+     The bare "set cmd on" puts the slot back on the shared broker.
+     (On lou-19 the line is "set mqtt.cmd on".)
   3. Reboot to apply it:  mccontrol send loutest reboot --via mesh
      A reboot answers nothing; the node restarts first.
   4. Confirm on MQTT, a few minutes later:  mccontrol send loutest ver
+     A node is back on the plane about 3 minutes after its network is.
 
 What the mesh road admits
   Everything the plane admits over MQTT, and only here the repair:
   set wifi.ssid, set wifi.pwd (each with a value), set cmd on and
-  set cmd on <host>. The broker slots' settings (set mqttN.*) travel
-  too, so a broken Observer feed can be repaired over the mesh as well.
-  Everything else denied stays denied. A command
+  set cmd on <host>, and "time" (below). The broker slots' settings
+  (set mqttN.*) travel too, so a broken Observer feed can be repaired
+  over the mesh as well. Everything else denied stays denied. A command
   is at most 57 bytes to a node on lou-20 or later (sealed) and 59 to
   one on lou-19, checked before it is signed. One node at a time,
-  never a region. A node's answers share an airtime budget (5 % of 15
-  minutes, then 1 %); a command over it is not answered and "get cmd"
-  counts it as refused. 50 commands an hour on every road.
+  never a region. 50 commands an hour on every road.
 
-Answers and silence
-  mesh-closed: the node's MQTT works, so it takes commands over MQTT;
-  send it there. Silence is not a refusal: a node on older firmware,
-  a bad signature, a replay or the airtime budget all say nothing.
-  The first request to a node with no known path floods once; its
-  answer teaches your companion a path, and the next one goes direct.
+Flood and direct
+  A request goes direct, along a known path, or as a flood, which every
+  repeater in reach repeats. The first request to a node with no known
+  path floods once. A node answers a flooded request 15 to 30 seconds
+  after it arrives, so that the answer does not collide with the copies
+  of the request. A request that came direct is answered at once.
+  The flooded answer teaches the way back: your companion (or the
+  relay) learns the path and sends it to the node, and the next
+  requests and answers go direct, as a few packets and no flood.
+  A path that has stopped working shows as no answer to a direct
+  command. One flooded command renews it.
+
+No answer
+  Over the mesh, silence is not a refusal. It is one of two things.
+  The packet was lost: the request on the way out, or the answer on
+  the way back. If the answer was lost, the command may have run. Read
+  the setting back before you send a change again.
+  The node did not answer on purpose. It says nothing at all when:
+    its answer airtime is used up. A node answers on a budget of its
+    own: 5 % of 15 minutes (45 s on the air), then 1 % of the next 15
+    (9 s), then a burst again. Wait a few minutes and send it again.
+    the request was not signed by its command key, or its counter was
+    not new (a replay).
+    its firmware is older than lou-19, or has no remote control.
+  Tell them apart with "get cmd": its line ends ", mesh <mode> ok <n>
+  refused <n>". A request over the budget is counted under refused; a
+  lost packet is counted nowhere.
+  mesh-closed is an answer, not silence: the node's MQTT works, so it
+  takes commands over MQTT. Send it there.
+
+A clock that fell behind: time now
+  A node without Wi-Fi has no time source. One whose clock was set once
+  and has fallen behind refuses every command as expiry-too-far. Send
+    mccontrol send cabin time now --via mesh
+  (or --via relay:<device>). The tool sends this computer's time as
+  "time <epoch>". It is admitted over the mesh only, never over MQTT,
+  on lou-20 or later, and at most an hour ahead of the sender's clock.
+  It only moves a clock forward: a clock that is ahead needs a visit.
+  A clock still at the firmware's default needs nothing: the node skips
+  the expiry check until its clock is set.
 
 --via auto
   Takes the mesh for a mesh-only node, for a command only the mesh
@@ -61,36 +101,4 @@ Answers and silence
   reached; otherwise MQTT. A mesh-closed answer is sent again over MQTT.
   History says which road each command took.
 
-Through a relay
-  From lou-20 a node of yours on MQTT can send the request for you, so
-  you need no companion. It sends the same mesh request to the other
-  node and returns the answer over MQTT:
-    mccontrol send cabin ver --via relay:loutest
-  The relay sends it direct, with no hops. That is right when the node
-  hears the relay itself. For a node further away, give the hops
-  (--path A1B2) or flood once: --route flood stays in the relay's
-  region, --route flood-wide uses its default scope. An answer teaches
-  the path, and the next direct send through that relay uses it.
-  One node at a time, and only what the mesh road admits. Here you
-  name the relay. The web app's auto may take one that hears the node
-  directly, never a flood. A relay sends one command at a time
-  within an airtime budget (about 26 in 15 minutes, then 5 in the
-  next 15; a flood at most once a minute) and waits two minutes for
-  the answer. A second one sent before the first is on the air
-  replaces it, and the first is never answered. A node answers a
-  flooded command 15 to 30 seconds after it arrives. "no answer" is
-  not a refusal: the node may have run the command. Relaying is on by default. Switch it with
-  "set relay off" or "set relay own"; "get relay"
-  shows what is left of the budget.
-
-Mesh-only nodes
-  A node built without Wi-Fi (an rc image with no -observer in its
-  version) takes commands over the mesh alone. Its commands are sealed
-  to it from lou-20 (lou-19: signed for the region named mesh), and
-  it refuses the Wi-Fi and MQTT repair,
-  ota check, ota update, cmd ping and the broker slots' settings
-  (set mqttN.*). The command key is set on its
-  console, as on every node, or the first time by a remote admin
-  login.
-
-Related: [[send]], [[signing]], [[history]].
+Related: [[relay]], [[meshonly]], [[send]], [[signing]], [[history]].

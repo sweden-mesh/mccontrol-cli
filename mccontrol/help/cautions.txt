@@ -11,8 +11,9 @@ said to send them anyway:
   set autoreply off    stops answering test requests.
   reboot, clkreboot    restarts the node: off the air and off the control
                        plane until it is back.
-  set mqtt.iata        moves the node to another region's topics; change
-                       its region here to match.
+  set mqtt.iata        moves the node to another region's topics. On
+                       lou-19 and older, change its region here to
+                       match; a lou-20 node is reached without it.
   set mqttN.*          changes that slot's broker or credentials; if the
                        control plane rides that slot, it may go silent.
   set name             renames the node as the whole mesh sees it.
@@ -21,6 +22,7 @@ set repeat off, erase and set cmd* are not cautions any more: the
 firmware refuses them outright, and so does this tool, before signing
 (see [[commands]]).
 
-A broadcast of one of these cannot be undone in one step. The node does
-not second-guess a signed command; this question is where it is asked.
+One of these sent to a region or a county goes to every node of yours
+there and cannot be undone in one step. The node does not second-guess
+a signed command; this question is where it is asked.
 See [[send]].

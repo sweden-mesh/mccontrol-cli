@@ -1,0 +1,53 @@
+A node without Wi-Fi (mesh only)
+
+From lou-20 remote control also works on boards without Wi-Fi: the rc
+and arrc images for stock MeshCore boards (nRF52, RP2040, STM32, and an
+ESP32 built as a plain repeater). Such a node has no MQTT. It takes your
+signed commands over the mesh alone, from your companion radio or
+through a relay. Its version has rc or arrc and no "-observer".
+
+Set it up
+  1. Flash the rc or arrc image for the board. (Wio-E5 mini has no arrc
+     image: it does not fit. ar and rc do.)
+  2. On its console, give it your public key and turn commands on:
+       set cmd.pubkey <your 64-hex public key>
+       set cmd on
+     "get cmd" then says "mesh only". The first key can also come from
+     a remote admin login; see [[signing]].
+  3. Add it by its own public key, all 64 hex characters ("get
+     public.key" on its console shows it). It is never discovered: a
+     mesh-only node sends no alive message (see [[discover]]).
+       mccontrol add cabin <64 hex>
+     Give it no region. In the web app: Add nodes, "Add a node by its
+     public key".
+  4. Send the first command over the mesh, by name:
+       mccontrol send cabin ver --via relay:loutest
+       mccontrol send cabin ver --via mesh
+     The answer carries the version, and from it the tool knows the
+     node is mesh only. Until then the web app's node settings have
+     "Mesh only: Yes" for a node whose version is not known.
+
+Reach it
+  Through a relay: an Observer node of yours on MQTT, with the same
+  command key, that the node hears. No companion needed. See [[relay]].
+  Through your companion radio: --via mesh (the web app: Mesh). See
+  [[mesh]] for the companion's setting.
+  Over MQTT it cannot be reached. Once the tool knows the node is mesh
+  only it says so before signing, and --via auto takes the mesh.
+
+What is different on a mesh-only node
+  The mesh road is always open while "set cmd on": there is no
+  cmd.mesh setting.
+  It refuses what only an uplink means, as not-allowed: set wifi.ssid,
+  set wifi.pwd, set cmd on <host>, ota check, ota update, cmd ping and
+  the broker slots' settings (set mqttN.*).
+  It has no clock source. A clock that fell behind makes it refuse
+  every command; "time now" mends it (see [[mesh]]).
+  It answers on an airtime budget, and a command over the budget gets
+  no answer at all (see [[mesh]], "No answer").
+  It shows no online or offline state: that comes from the alive
+  message. "get stats" and "get sensors" still answer over the mesh.
+  It is updated by USB or Bluetooth as before. There is no update over
+  the mesh.
+
+Related: [[relay]], [[mesh]], [[signing]], [[devices]].
