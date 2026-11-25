@@ -472,6 +472,14 @@ CHECK_VERSIONS = (
     "esp32s3-v1.17.1-lou-18-xyz-observer-1a2b3c4d",
     "nrf52-v1.18.0-lou-19-rc-1a2b3c4d",
     "nrf52-v1.18.0-lou-19-arrc-1a2b3c4d",
+    # lou-20 as released, and lou-21: an Observer node has one image, which keeps `arrc` in its name
+    # because the features are read from it; boards without Wi-Fi keep three.
+    "esp32s3-v1.18.0-lou-20-arrc-observer-9c6c0a0",
+    "nrf52840-v1.18.0-lou-20-rc-6491056",
+    "esp32s3-v1.18.0-lou-21-arrc-observer-1a2b3c4",
+    "nrf52840-v1.18.0-lou-21-arrc-1a2b3c4",
+    "nrf52840-v1.18.0-lou-21-ar-1a2b3c4",
+    "esp32s3-v1.18.0-lou-21-observer-1a2b3c4",
     "esp32s3-v1.18.0-lou-19-ar-1a2b3c4d",
     "esp32s3-v1.18.0-lou-18-rc-1a2b3c4d",
     "esp32s3-v1.18.0-lou-20-arrc-observer-1a2b3c4d",
