@@ -63,7 +63,8 @@ AUTOREPLY_FAMILIES = ("trigger", "set autoreply", "get autoreply")
 
 # Commands the deny list admits that arrived after ar-11: the revision that admits each.
 ARRIVED = {"mqtt.cmd ping": 12, "cmd ping": 20, "ota update": 19,
-           "get relay": 20, "get sensors": 20, "set relay off": 20, "set relay own": 20}
+           "get relay": 20, "get sensors": 20, "set relay off": 20, "set relay own": 20,
+           "get cmd.mesh": 20, "get alive.interval": 20}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13

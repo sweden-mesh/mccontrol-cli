@@ -35,6 +35,11 @@ config --broker" changes that one). "VGR=" with no host moves the region
 back to the shared one. Your devices keep their region either way, so
 moving a region loses no device.
 
+lou-20 and later: the tool talks to one command server at a time, the
+shared one unless "mccontrol config --broker <host>" says otherwise; the
+region table above is for lou-19 and older. Nodes set with "set cmd on
+<host>" are found and reached only while that host is the tool's.
+
 3. Register your key with each command server in use, once per server:
 
   mccontrol register              (every command server in use)
