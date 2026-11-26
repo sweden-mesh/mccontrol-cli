@@ -95,7 +95,7 @@ line of its own and not sent. Up and Down recall; F3 leaves.
 ```
  MCCONTROL                       Command Entry               10/10/26  09:00:00
 
- To . . . :  Gisebo  (4AC61A7F, JKG)
+ To . . . :  Meadow  (A1B2C3D4, ZQV)
 
 
 
@@ -107,10 +107,10 @@ line of its own and not sent. Up and Down recall; F3 leaves.
 
  > ver
    1 of 1 answered.
-   Gisebo             unverified result > esp32s3-v1.17.1-ar-11-observer-90e86c
+   Meadow             unverified result > esp32s3-v1.17.1-ar-11-observer-90e86c
  > get name
    1 of 1 answered.
-   Gisebo             unverified result > SE-JKG-Gisebo
+   Meadow             unverified result > SE-XX-Meadow
  Type command, press Enter.
  ===>
 
