@@ -2,8 +2,6 @@
 connection for a run of commands, and a refusal said with its likely cause. The server admits
 only so many new login keys an hour and new connections a minute from one address. A FAKE
 broker stands in; nothing here opens a real one."""
-import json
-import stat
 import types
 
 import pytest
@@ -64,41 +62,15 @@ def two(store):
     return store
 
 
-def kept(store):
-    return json.loads((store.root / _store.LOGIN_FILE).read_text())
-
-
-def test_the_login_key_is_kept_private_between_commands_and_is_not_the_command_key(two, counting):
+def test_the_login_key_is_one_per_run_in_memory_and_is_not_the_command_key(two, counting):
     for _ in range(3):
-        plane.new_session()                         # as a new process would be
         actions.send(two, "get name", device=two.device("bench"))
     users = {u for u, _pw in counting.logins}
-    assert len(users) == 1
-    path = two.root / _store.LOGIN_FILE
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert users == {"v1_" + envelope.public_key_hex(kept(two)["seed"])}
-    assert kept(two)["seed"] != OWNER_SEED and envelope.public_key_hex(OWNER_SEED) not in path.read_text()
-
-
-def test_a_login_key_older_than_six_hours_is_replaced(store):
-    first, new = store.login_seed(now=1_000_000)
-    assert new and store.login_seed(now=1_000_000 + _store.LOGIN_KEEP_SECS - 1) == (first, False)
-    second, new = store.login_seed(now=1_000_000 + _store.LOGIN_KEEP_SECS)
-    assert new and second != first and kept(store) == {"seed": second, "created": 1_000_000 + _store.LOGIN_KEEP_SECS}
-
-
-@pytest.mark.parametrize("spoil", ["readable", "damaged", "future"])
-def test_a_login_file_others_can_read_or_that_is_damaged_is_replaced(store, spoil):
-    first, _new = store.login_seed(now=1_000_000)
-    path = store.root / _store.LOGIN_FILE
-    if spoil == "readable":
-        path.chmod(0o644)
-    elif spoil == "damaged":
-        path.write_text('{"seed": "zz", "created": 1000000}')
-    else:
-        path.write_text(json.dumps({"seed": first, "created": 2_000_000}))
-    second, new = store.login_seed(now=1_000_001)
-    assert new and second != first and stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert len(users) == 1 and users != {"v1_" + envelope.public_key_hex(OWNER_SEED)}
+    assert not (two.root / "login.json").exists()
+    _store.forget_login()                           # as a new run of the tool would be
+    actions.send(two, "get name", device=two.device("bench"))
+    assert len({u for u, _pw in counting.logins}) == 2
 
 
 def test_a_kept_key_the_server_refuses_is_replaced_once(two, counting):
@@ -106,7 +78,8 @@ def test_a_kept_key_the_server_refuses_is_replaced_once(two, counting):
     counting.refuse = {"v1_" + envelope.public_key_hex(old)}
     _t, _p, answers, _l = actions.send(two, "get name", device=two.device("bench"))
     assert list(answers) == [NODE[:8]] and counting.opened == 2
-    assert kept(two)["seed"] != old and counting.logins[-1][0] == "v1_" + envelope.public_key_hex(kept(two)["seed"])
+    now, new = two.login_seed()
+    assert not new and now != old and counting.logins[-1][0] == "v1_" + envelope.public_key_hex(now)
 
 
 def test_a_refused_login_says_the_likely_cause_and_sends_nothing(two, counting):

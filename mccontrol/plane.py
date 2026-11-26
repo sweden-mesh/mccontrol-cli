@@ -6,7 +6,7 @@ its result comes back on `mcc/r/<RID>`, a reply topic named only inside the seal
 and the owner finds its nodes by opening the retained `mcc/alive/<KEY>` messages.
 
 The command key signs and seals; it never touches the broker. The broker login is a
-throwaway key, drawn at random and kept beside the store for some hours (`Store.login_seed`),
+throwaway key, drawn at random once per run of the tool and kept in memory (`Store.login_seed`),
 because the broker admits only so many new login keys an hour from one address; the RID is
 drawn once per process. Neither comes from the command key, so the broker sees no owner
 (RC-ALIVE decision 6). The broker takes `mcc/cmd` only on its TLS listener.

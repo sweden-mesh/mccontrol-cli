@@ -93,3 +93,11 @@ def validate(schema, value, where="$"):
         for i, item in enumerate(value):
             errors += validate(schema["items"], item, f"{where}[{i}]")
     return errors
+
+
+@pytest.fixture(autouse=True)
+def _a_new_run_of_the_tool():
+    """Each test starts as a new run would: no login key drawn yet."""
+    from mccontrol import store as _s
+    _s.forget_login()
+    yield
