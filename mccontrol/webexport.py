@@ -555,6 +555,8 @@ MCC3_FORWARD = {
     "size": mcc3.FORWARD_SIZE, "result_size": mcc3.FORWARD_RESULT_SIZE,
     "path": mcc3.FORWARD_PATH, "body": mcc3.FORWARD_BODY, "min_body": mcc3.FORWARD_MIN_BODY,
     "body_subtypes": [mcc3.MESH_V1_SUBTYPE, mcc3.MESH_SUBTYPE],
+    # A lou-20 relay forwards both; from lou-21 a relay answers `bad-body` to the first (0xC1).
+    "body_subtypes_from": {"lou-21": [mcc3.MESH_SUBTYPE]},
     "result_plaintext": mcc3.FORWARD_RESULT_PLAIN, "result_path": mcc3.FORWARD_RESULT_PATH,
     "max_response": mcc3.FORWARD_MAX_RESPONSE,
     "routes": {name: number for number, name in enumerate(mcc3.ROUTES)},
@@ -667,7 +669,8 @@ def mcc3_vectors():
     forwards = [forward("F1 direct, no hops, a 0xC2 request with the zero-hop flag", 9, mcc3.ROUTE_DIRECT,
                         v3z[4:], 0x60),
                 forward("F2 flood in the region home, a 0xC1 request of 81 bytes; path length 0, so the three "
-                        "bytes in the path field are not a path", 10, mcc3.ROUTE_FLOOD, v1_body, 0x61,
+                        "bytes in the path field are not a path (a lou-20 relay sends it; from lou-21 a relay "
+                        "opens it and answers bad-body)", 10, mcc3.ROUTE_FLOOD, v1_body, 0x61,
                         path_field=bytes.fromhex("A1B2C3"))]
 
     def forward_result(name, counter, status, clock, sent, snr, path_len, path, response, nonce_first):

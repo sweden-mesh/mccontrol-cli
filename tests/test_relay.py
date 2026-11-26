@@ -197,16 +197,11 @@ def test_a_flood_is_asked_for_by_name_and_never_carries_the_zero_hop_flag(store,
         through(store, route="wide")
 
 
-def test_a_lou_19_target_gets_its_0xC1_request_and_its_plain_answer_is_read(store, relay):
+def test_a_target_older_than_lou_20_is_refused_before_anything_is_sent(store, relay):
     store.update_device(TARGET[:8], ver=LOU_19, region="JKG")
-    relay.answer = (0, "> Cabin")
-    _t, _p, answers, lines = through(store)
-    body = relay.forwards[0]["body"]
-    assert body[0] == 0xC1 and len(body) == 73 + len("get name")
-    assert body == mesh.request(OWNER_SEED, f"meshcore/JKG/{TARGET}/cmd", *struct.unpack_from("<II", body, 1), "get name")
-    assert answers[TARGET[:8]].reply == "> Cabin" and lines[1] == "Cabin        > Cabin [signed]"
-    with pytest.raises(envelope.EnvelopeError, match="1..59 bytes"):
-        through(store, "set name " + "x" * 51)
+    with pytest.raises(envelope.EnvelopeError, match="older than lou-20"):
+        through(store)
+    assert relay.forwards == []
 
 
 # -- what comes back -----------------------------------------------------------------------

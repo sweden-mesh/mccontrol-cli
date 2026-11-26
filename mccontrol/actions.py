@@ -495,15 +495,15 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     if refused:
         raise envelope.EnvelopeError(f"the node would refuse {command!r} over the mesh: {refused}")
     relay_key = _whole_key(relay)
-    new = scheme(device) == "mcc3"
-    if new:
-        mesh.check_command_mcc3(command)
-        key = _whole_key(device)
-        topic = mcc3.command_topic(key)     # what the history names: the node
-        keys = store.owner_keys(key)
-    else:
-        topic = _mesh_topic(command, device, only)
-        key = envelope.node_key(device["key"])
+    # A relay carries the lou-20 request (0xC2) only: lou-21's relay refuses the older 0xC1, whose
+    # only targets ran a firmware that was never released.
+    if scheme(device) != "mcc3":
+        raise envelope.EnvelopeError(f"{device.get('name') or device['node']} runs a firmware older than lou-20; "
+                                     "a relay reaches lou-20 or later only")
+    mesh.check_command_mcc3(command)
+    key = _whole_key(device)
+    topic = mcc3.command_topic(key)     # what the history names: the node
+    keys = store.owner_keys(key)
     if route != "direct":
         if path:
             raise envelope.EnvelopeError("a path goes with the direct route only")
@@ -514,7 +514,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     else:
         path_len, hops = relay_path(path)
     # one transmission each way, and only when the relay was told the node is its neighbour
-    flags = mcc3.FLAG_ZERO_HOP if new and route == "direct" and not path_len & 63 else 0
+    flags = mcc3.FLAG_ZERO_HOP if route == "direct" and not path_len & 63 else 0
     ttl = config.get("ttl_secs", envelope.DEFAULT_TTL_SECS)
     relay_keys = store.owner_keys(relay_key)
     relay_name, name = relay.get("name") or relay["node"], device.get("name") or device["node"]
@@ -524,9 +524,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     note = [f"{'':12} {note}"] if note else []
 
     def build(counter):
-        if new:
-            return mesh.build_mcc3(store.seed(), key, counter, command, keys=keys, ttl_secs=ttl, flags=flags)
-        return mesh.build(store.seed(), topic, counter, command, ttl_secs=ttl)
+        return mesh.build_mcc3(store.seed(), key, counter, command, keys=keys, ttl_secs=ttl, flags=flags)
 
     def seal(forward_counter, body):
         return plane.forward_payload(relay_keys, relay_key, forward_counter, key, mcc3.ROUTES.index(route), body,
@@ -553,8 +551,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
                                     progress=progress)
         result = None
         if got is not None and got["status"] == mcc3.FORWARD_ANSWERED:
-            result = (mesh.parse_mcc3(keys, got["response"], node, command, counter) if new else
-                      mesh.parse_response(got["response"], node, command, counter))
+            result = mesh.parse_mcc3(keys, got["response"], node, command, counter)
     said = {"node": relay["node"], "name": relay_name, "route": route, "status": None, "sent": None, "snr": None}
     if got is None:
         line = (f"no answer from the relay {relay_name}: is it online, on lou-20 or later, and relaying "
