@@ -328,6 +328,19 @@ def test_the_list_box_filters_and_the_cursor_skips_headers():
     assert box.rows == []
 
 
+def test_a_new_filter_puts_the_cursor_on_the_first_entry_that_can_be_run():
+    from mccontrol.ui.MeshcoreCommander.dialogs import ListBox
+    box = ListBox("x", [("reads", [("get sensors", 1, "needs lou-20"), ("ver", 2), ("get name", 3), ("get radio", 4)])])
+    assert box.rows[box.cursor][1] == "ver"                # past the header and the greyed entry
+    box.filter = "a"; box._rebuild()                       # the greyed entry is gone from the list
+    assert [r[1] for r in box.rows] == ["reads", "get name", "get radio"]
+    assert box.rows[box.cursor][1] == "get name"           # the first match, not the second
+    box.filter = "get"; box._rebuild()                     # and with the greyed entry first again
+    assert box.rows[1][0] == "grey" and box.rows[box.cursor][1] == "get name"
+    box.move(+1); box.filter = "ge"; box._rebuild()        # a moved cursor does not stay where it was either
+    assert box.rows[box.cursor][1] == "get name" and box.top == 0
+
+
 def test_the_choice_box_previews_and_the_multi_box_joins():
     from mccontrol.ui.MeshcoreCommander.dialogs import ChoiceBox
     one = ChoiceBox("set autoreply", ["on", "off"])

@@ -287,7 +287,9 @@ class ListBox:
                 rows += [("grey" if len(e) > 2 and e[2] else "item", e[0], e[2] if len(e) > 2 and e[2] else e[1])
                          for e in hits]
         self.rows = rows
-        self.cursor = min(self.cursor, max(0, len(rows) - 1))
+        # a new filter is a new list: the first entry that can be run, not the row number the
+        # cursor had in the old one (which a greyed entry above had pushed down by one)
+        self.cursor = self.top = 0
         self._settle(+1)
 
     def _settle(self, direction):
