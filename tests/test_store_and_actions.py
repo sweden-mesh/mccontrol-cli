@@ -218,6 +218,21 @@ class _FakeClient:
         pass
 
 
+def test_a_send_without_the_nodes_keys_still_hears_their_answers(store, monkeypatch):
+    """`keys` only adds the whole key to verify a signed result with; left out, a result is
+    heard all the same, unverified, never dropped."""
+    from mccontrol import transport
+    store.create_key()
+    _FakeClient.answers = [(NODE, 0, "> on")]
+    monkeypatch.setattr(transport, "_client", _FakeClient)
+    monkeypatch.setattr(transport, "_wait", lambda *a, **k: None)
+    config = dict(store.config(), region="JKG")
+    for keys in ({}, None):
+        _payload, answers = transport.send(config, store.seed(), f"meshcore/JKG/{NODE}/cmd", "get autoreply",
+                                           nodes_to_hear=[NODE], **({} if keys is None else {"keys": keys}))
+        assert list(answers) == [NODE] and answers[NODE].reply == "> on" and answers[NODE].verified is None
+
+
 def test_discover_finds_the_nodes_that_answer_your_signature_and_marks_the_known_ones(store, monkeypatch):
     from mccontrol import transport
     store.create_key()
