@@ -474,12 +474,20 @@ def _hops(path_len, path=b""):
     return f"{path_len & 63} hop(s) via {hops}" if hops else f"{path_len & 63} hop(s)"
 
 
+def _typed(path_len, path_hex):
+    """A stored path as `--path` takes it."""
+    size = (path_len >> 6) + 1
+    return path_hex if size == 1 else f"{size}:{path_hex}"
+
+
 def send_relay(store, command, device, relay, route="direct", path=None, dry_run=False, wait_secs=None,
                progress=None, script=None):
     """One command to `device` through `relay`, a node of yours on MQTT that transmits the
     mesh-road request and returns the answer. `route` is direct (along `path`; by default the
-    path the last answer taught this relay, else no hops), flood or flood-wide. Everything is
-    checked before anything is signed. Returns as `send`."""
+    stored path, else no hops), flood or flood-wide. The stored path is the one that last
+    answered a direct send; one a flood's answer taught waits beside it until it has, and a
+    stored path that got no answer to `RELAY_PATH_FAILS` direct sends in a row is forgotten.
+    Everything is checked before anything is signed. Returns as `send`."""
     config = store.config()
     text = " ".join((command or "").split())
     if relay is None:
@@ -554,6 +562,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
         if got is not None and got["status"] == mcc3.FORWARD_ANSWERED:
             result = mesh.parse_mcc3(keys, got["response"], node, command, counter)
     said = {"node": relay["node"], "name": relay_name, "route": route, "status": None, "sent": None, "snr": None}
+    paths = []                              # what became of the stored path, said under the result
     if got is None:
         line = (f"no answer from the relay {relay_name}: is it online, on lou-20 or later, and relaying "
                 f"(get relay)?")
@@ -562,8 +571,24 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
         said.update(status=mcc3.FORWARD_STATUSES[status] if status < len(mcc3.FORWARD_STATUSES) else f"unknown-{status}",
                     sent={mcc3.SENT_DIRECT: "direct", mcc3.SENT_FLOOD: "flood"}.get(got["sent"]),
                     snr=None if got["snr"] is None else got["snr"] / 4)
-        if got["path_len"] is not None:
-            store.remember_relay_path(node, relay["node"], got["path_len"], got["path"])
+        direct = route == "direct"
+        if result is not None and got["path_len"] is not None:      # only the node's own answer teaches a path
+            kept = (device.get("relay_paths") or {}).get(relay["node"])
+            taught = (got["path_len"], bytes(got["path"]).hex().upper())
+            store.remember_relay_path(node, relay["node"], got["path_len"], got["path"], proven=direct)
+            if not direct and kept and (kept["len"], kept["path"]) != taught:
+                paths.append(f"{'':12} the answer taught another path ({_hops(got['path_len'], got['path'])}); the "
+                             f"stored one ({_hops(kept['len'], bytes.fromhex(kept['path']))}) stays the default "
+                             f"until the new one has answered a direct send (--path {_typed(*taught)})")
+        elif result is not None and direct and path_len & 63:       # the path sent along answered
+            store.remember_relay_path(node, relay["node"], path_len, hops)
+        elif direct and status == mcc3.FORWARD_NO_ANSWER:
+            gone, after = store.relay_path_failed(node, relay["node"], path_len, hops)
+            if gone:
+                then = (f"the next direct send goes along the one a flood taught ({_hops(after['len'], bytes.fromhex(after['path']))})"
+                        if after else "the next direct send has no hops; a flooded send finds a new path (--route flood)")
+                paths.append(f"{'':12} the stored path ({_hops(path_len, hops)}) got no answer "
+                             f"{_store.RELAY_PATH_FAILS} times in a row and is forgotten; {then}")
         if result is not None:
             line = outcome_line(result, device.get("ver"))
         elif status == mcc3.FORWARD_ANSWERED:
@@ -584,7 +609,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     if got is None or got["status"] in (mcc3.FORWARD_ANSWERED, mcc3.FORWARD_NO_ANSWER):   # else nothing went on the air
         more = _advice(store, device, command, result, RELAY_ROAD, direct=route == "direct",
                        unknown=got is None or result is None and got["status"] == mcc3.FORWARD_ANSWERED)
-    return topic, payload, {node: result} if result is not None else {}, [f"{head}{sent}", f"{name[:12]:12} {line}"] + more + note
+    return topic, payload, {node: result} if result is not None else {}, [f"{head}{sent}", f"{name[:12]:12} {line}"] + more + paths + note
 
 
 def _whole_key(device):

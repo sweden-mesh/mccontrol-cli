@@ -319,7 +319,10 @@ runs nothing itself and cannot read what it carries. The relay sends it direct w
 right when the node hears the relay itself. Further away, give the hops (`--path A1B2`, or
 `2:A1B2C3D4` for two-byte hashes) or flood once: `--route flood` stays in the relay's region home,
 `--route flood-wide` uses its default scope. An answer teaches the path; the next direct send
-through that relay uses it (`--path none` for no hops again).
+through that relay uses it (`--path none` for no hops again). Where a path is stored already, one
+a flood's answer taught waits beside it until it has answered a direct send (`--path` as the
+result line gives it), and a stored path that got no answer to two direct sends in a row is
+forgotten.
 
 One node at a time, never an area or a group, and only what the mesh road admits (57 bytes to
 lou-20, 59 to lou-19). You name the relay: `--via auto` never picks one. The relay must run lou-20

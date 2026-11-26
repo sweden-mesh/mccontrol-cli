@@ -2351,7 +2351,7 @@
      },
      "relay_paths": {
       "type": "object",
-      "description": "per relay (its node id): the path from that relay to this node as its last answer taught it, {len, path, at}; the default for the next direct send through that relay",
+      "description": "per relay (its node id): the path from that relay to this node that last answered a direct send, {len, path, at}; the default for the next direct send through that relay. fails counts direct sends along it in a row without an answer (at 2 it is forgotten); next is a path a flood's answer taught since, which takes its place once it has answered a direct send or the stored one is forgotten",
       "additionalProperties": {
        "type": "object",
        "properties": {
@@ -2365,6 +2365,13 @@
         },
         "at": {
          "type": "string"
+        },
+        "fails": {
+         "type": "integer"
+        },
+        "next": {
+         "type": "object",
+         "description": "{len, path, at}"
         }
        }
       }

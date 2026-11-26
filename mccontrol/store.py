@@ -71,6 +71,8 @@ FORMER_BEACONS = ("https://beacon.meshat.se/api/v1", "https://beacon.meshcore-jk
 LOGIN_FILE = "login.json"
 LOGIN_KEEP_SECS = 6 * 3600      # the throwaway login key is kept this long, then replaced
 
+RELAY_PATH_FAILS = 2            # direct sends in a row without an answer before a stored path is forgotten
+
 SHORTCUT_SLOTS = 9
 DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", "get repeat"]
 
@@ -422,15 +424,47 @@ class Store:
         self.update_device(relay_node, forward_counter=counter)
         return counter
 
-    def remember_relay_path(self, node, relay_node, path_len, path):
+    def remember_relay_path(self, node, relay_node, path_len, path, proven=True):
         """The path from a relay to the node, as an answer taught the relay: the default for
-        the next direct forward to this node through that relay."""
+        the next direct forward to this node through that relay. `proven` says the answer
+        came to a direct send, so the path worked. One a flood's answer taught is not proven:
+        it is stored when there is none, and beside a stored one that differs (`next`), which
+        stays the default until the new one has answered a direct send."""
         d = next((e for e in self.devices() if e["node"] == node), None)
         if d is None:
             raise StoreError("no such device")
         paths = dict(d.get("relay_paths") or {})
-        paths[relay_node] = {"len": path_len, "path": bytes(path).hex().upper(), "at": _now()}
+        new = {"len": path_len, "path": bytes(path).hex().upper(), "at": _now()}
+        old = paths.get(relay_node)
+        same = old is not None and (old["len"], old["path"]) == (new["len"], new["path"])
+        if proven or old is None:
+            paths[relay_node] = new
+        elif not same:
+            paths[relay_node] = dict(old, next=new)
         return self.update_device(node, relay_paths=paths)
+
+    def relay_path_failed(self, node, relay_node, path_len, path):
+        """A direct send along `path` through the relay got no answer. When that is the stored
+        path, its count of such sends in a row goes up, and at `RELAY_PATH_FAILS` it is
+        forgotten: the path a flood taught since takes its place, else there is none.
+        Returns `(forgotten, next)`: the entry dropped and the one in its place, each or None."""
+        d = next((e for e in self.devices() if e["node"] == node), None)
+        paths = dict((d or {}).get("relay_paths") or {})
+        old = paths.get(relay_node)
+        if old is None or (old["len"], old["path"]) != (path_len, bytes(path).hex().upper()):
+            return None, None
+        fails = int(old.get("fails") or 0) + 1
+        if fails < RELAY_PATH_FAILS:
+            paths[relay_node] = dict(old, fails=fails)
+            self.update_device(node, relay_paths=paths)
+            return None, None
+        after = old.get("next")
+        if after:
+            paths[relay_node] = after
+        else:
+            del paths[relay_node]
+        self.update_device(node, relay_paths=paths)
+        return old, after
 
     # -- mcc3: the shared secret with each node (IATA-2) --------------------------------
 

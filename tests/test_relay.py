@@ -182,6 +182,76 @@ def test_a_taught_path_is_kept_per_relay_and_is_the_next_direct_default(store, r
     assert store.device("cabin")["relay_paths"][THIRD[:8]]["path"] == "77"
 
 
+def _kept(store):
+    return store.device("cabin").get("relay_paths", {}).get(RELAY[:8])
+
+
+def test_a_path_a_flood_taught_waits_until_it_has_answered_a_direct_send(store, relay):
+    store.remember_relay_path(TARGET[:8], RELAY[:8], 2, bytes.fromhex("A1B2"))
+    relay.taught = (0x42, bytes.fromhex("0102A1B2"))
+    lines = through(store, route="flood")[3]
+    assert (_kept(store)["path"], _kept(store)["next"]["path"], _kept(store)["next"]["len"]) == ("A1B2", "0102A1B2", 0x42)
+    assert lines[2] == (f"{'':12} the answer taught another path (2 hop(s) via 0102>A1B2); the stored one "
+                        f"(2 hop(s) via A1>B2) stays the default until the new one has answered a direct send "
+                        f"(--path 2:0102A1B2)")
+    relay.taught = None
+    through(store)                                                      # the old path is still the default
+    assert (relay.forwards[1]["path_len"], relay.forwards[1]["path"]) == (2, bytes.fromhex("A1B2"))
+    relay.taught = (0x42, bytes.fromhex("0102A1B2"))
+    assert len(through(store, path="2:0102A1B2")[3]) == 2               # the new one answers a direct send
+    assert (_kept(store)["path"], _kept(store)["len"]) == ("0102A1B2", 0x42) and "next" not in _kept(store)
+    relay.taught = None
+    through(store)
+    assert relay.forwards[3]["path"] == bytes.fromhex("0102A1B2")
+
+
+def test_a_flood_teaches_the_first_path_at_once_and_the_same_path_again_changes_nothing(store, relay):
+    relay.taught = (1, b"\x77")
+    assert len(through(store, route="flood")[3]) == 2 and _kept(store)["path"] == "77"
+    assert len(through(store, route="flood")[3]) == 2 and "next" not in _kept(store)
+
+
+def test_a_stored_path_is_forgotten_after_two_direct_sends_in_a_row_without_an_answer(store, relay):
+    assert _store.RELAY_PATH_FAILS == 2
+    store.remember_relay_path(TARGET[:8], RELAY[:8], 2, bytes.fromhex("A1B2"))
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    through(store)
+    assert _kept(store)["fails"] == 1 and _kept(store)["path"] == "A1B2"
+    # what says nothing of the path does not count: a relay that refused, one that was silent,
+    # a flood, another path
+    relay.status = 7
+    through(store)
+    relay.status, relay.silent = mcc3.FORWARD_NO_ANSWER, True
+    through(store)
+    relay.silent = False
+    through(store, route="flood"), through(store, path="none"), through(store, path="77")
+    assert _kept(store)["fails"] == 1
+    relay.status = mcc3.FORWARD_ANSWERED                                # an answer along it ends the count
+    through(store)
+    assert _kept(store)["path"] == "A1B2" and not _kept(store).get("fails")
+    relay.status = mcc3.FORWARD_NO_ANSWER
+    assert not any("forgotten" in l for l in through(store)[3])
+    lines = through(store)[3]
+    assert _kept(store) is None
+    assert lines[-1] == (f"{'':12} the stored path (2 hop(s) via A1>B2) got no answer 2 times in a row and is "
+                         f"forgotten; the next direct send has no hops; a flooded send finds a new path (--route flood)")
+    through(store)
+    assert relay.forwards[-1]["path_len"] == 0 and relay.forwards[-1]["body"][1] == mcc3.FLAG_ZERO_HOP
+
+
+def test_a_forgotten_path_gives_way_to_the_one_a_flood_taught(store, relay):
+    store.remember_relay_path(TARGET[:8], RELAY[:8], 2, bytes.fromhex("A1B2"))
+    relay.taught = (1, b"\x77")
+    through(store, route="flood")
+    relay.taught, relay.status = None, mcc3.FORWARD_NO_ANSWER
+    through(store)
+    lines = through(store)[3]
+    assert lines[-1].endswith("is forgotten; the next direct send goes along the one a flood taught (1 hop(s) via 77)")
+    assert (_kept(store)["path"], _kept(store)["len"]) == ("77", 1) and "next" not in _kept(store) and "fails" not in _kept(store)
+    through(store)
+    assert (relay.forwards[-1]["path_len"], relay.forwards[-1]["path"]) == (1, b"\x77")
+
+
 @pytest.mark.parametrize("route, number, text", [("flood", 1, "flood in the relay's region"),
                                                  ("flood-wide", 2, "flood in the relay's default scope")])
 def test_a_flood_is_asked_for_by_name_and_never_carries_the_zero_hop_flag(store, relay, route, number, text):
@@ -289,6 +359,9 @@ def test_an_answer_that_does_not_open_with_the_targets_key_teaches_nothing(store
     _t, _p, answers, lines = through(store)
     assert answers == {} and "does not open" in lines[1]
     assert store.reads(TARGET[:8]) == []
+    relay.taught = (1, b"\x77")
+    through(store)
+    assert "relay_paths" not in store.device("cabin")                   # nor a path
 
 
 def test_a_result_opens_only_under_the_relays_key_and_for_this_forward():
