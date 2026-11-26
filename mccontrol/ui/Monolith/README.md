@@ -19,12 +19,12 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, a
  ▞▚ M O N O L I T H ▚▞  mccontrol  amber                              00:15:57
 ╭─ ◉ DEVICES ──────────────────────────────╮╭─ ● STATUS ───────────────────────╮
 │   Name               Node     Reg  Sent  ││ BROKER  mqtt-meshcore.louie.se:8883     │
-│   Far                FD700369 GOT  -     ││ KEY     2A6A1C1E…                │
-│   Gisebo             4AC61A7F JKG  -     ││ REG     no  :register            │
-│   (unnamed)          65C1D12C JKG  -     ││ LINK    untested  :test          │
+│   Far                C4D5E6F7 GOT  -     ││ KEY     2A6A1C1E…                │
+│   Meadow             A1B2C3D4 JKG  -     ││ REG     no  :register            │
+│   (unnamed)          9E8F7A6B JKG  -     ││ LINK    untested  :test          │
 │                                          │╰──────────────────────────────────╯
 │                                          │╭─ ● STATS GISEBO ─────────────────╮
-│                                          ││ 4AC61A7F  JKG  ver ?             │
+│                                          ││ A1B2C3D4  JKG  ver ?             │
 │                                          ││ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ │
 │                                          ││ tx delay          0.7        2 d │
 │                                          ││ autoreply         on         3 d │
@@ -37,7 +37,7 @@ The pictures are an invented fleet, made by `scripts/screenshots.py`. As text, a
 │        │ > get tx.delay                  ││                                  │
 │        │ < 0.5                           ││                                  │
 │ 4ac61a │ > region                        ││                                  │
-│        │ < * F                           ││ Gisebo ▶ Tab: type a command     │
+│        │ < * F                           ││ Meadow ▶ Tab: type a command     │
 ╰──────────────────────────────────────────╯╰────────────────────── Tab types ─╯
  : menu ↵ cmds ␣ tag c send a all s stat d find k keys Del forget ? help q quit
 ```
@@ -50,10 +50,10 @@ header is the block-letter title:
   █  █  █ █▄▄▄█ █   █ █▄▄▄█ █▄▄▄▄ █   █   █▀▀▀█                                           00:15:57  up 00:15:57
 ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
 ╭─ ◉ DEVICES ──────────────────────────────────╮╭─ ● STATS GISEBO ─────────────────────╮╭─ ● CLOCK ────────────────────╮
-│   Name               Node     Reg  Sent      ││ 4AC61A7F  JKG  ver ?                 ││      ▀█  ▀█    ▀▀█ ▀▀█       │
-│   Far                FD700369 GOT  -         ││ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ ││       █   █  ▀  ▀█ █▀▀       │
-│   Gisebo             4AC61A7F JKG  -         ││ tx delay          0.7            2 d ││      ▄█▄ ▄█▄ ▀ ▄▄█ █▄▄       │
-│   (unnamed)          65C1D12C JKG  -         ││ autoreply         on             3 d ││       session 00:15:57       │
+│   Name               Node     Reg  Sent      ││ A1B2C3D4  JKG  ver ?                 ││      ▀█  ▀█    ▀▀█ ▀▀█       │
+│   Far                C4D5E6F7 GOT  -         ││ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ ││       █   █  ▀  ▀█ █▀▀       │
+│   Meadow             A1B2C3D4 JKG  -         ││ tx delay          0.7            2 d ││      ▄█▄ ▄█▄ ▀ ▄▄█ █▄▄       │
+│   (unnamed)          9E8F7A6B JKG  -         ││ autoreply         on             3 d ││       session 00:15:57       │
 │                                              ││ autoreply hops    8              3 d ││       Sat 10 Oct 2026        │
 │                                              ││ autoreply mode    flood          3 d │╰──────────────────────────────╯
 │                                              ││ autoreply d.flood on             3 d │╭─ ● STATUS ───────────────────╮
@@ -83,7 +83,7 @@ header is the block-letter title:
 │                                              ││                                      ││                              │
 │                                              ││                                      ││                              │
 │                                              ││                                      ││                              │
-│                                              ││ Gisebo ▶ Tab: type a command         ││                              │
+│                                              ││ Meadow ▶ Tab: type a command         ││                              │
 ╰───────────────────────── 3 devices  by name ─╯╰────────────────────────── Tab types ─╯╰──────────────────────────────╯
  : menu ↵ cmds ␣ tag c send a all s stat d find k keys Del forget ? help q quit n names r fleet h history e edit o sort
 ```
