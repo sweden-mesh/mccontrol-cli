@@ -342,6 +342,8 @@ those slot settings, so a broken Observer feed can be repaired over the mesh.
 The bytes are in mccontrol-spec's [wire format](https://github.com/sweden-mesh/mccontrol-spec/blob/main/docs/wire-format.md)
 and pinned, with the firmware's own worked vectors, in `spec/vectors/vectors.json` (`mesh`).
 
+![two sends to a node without Wi-Fi through a relay: direct, then a flood](docs/screenshots/cli-relay-send.png)
+
 ### A companion over the network (`tcp:HOST:PORT`)
 
 A companion running the **Wi-Fi companion firmware** (`companion_radio_wifi`) listens on TCP port
@@ -488,7 +490,8 @@ every function key, option and verb pressed once, on an 80x24 and a wider termin
 `tests/test_parity.py` holds MeshcoreCommander and IBMi to Monolith's verbs, and
 `tests/test_pages.py` the pages' links and keys to the code.
 
-`python scripts/screenshots.py` remakes `docs/screenshots/` from an invented fleet (it needs
+`python scripts/screenshots.py` remakes `docs/screenshots/` from an invented lou-20 fleet: most
+nodes found by their alive message, one without Wi-Fi behind a relay, one still on lou-18 (it needs
 headless Chromium; `--only <name>` for one picture, `--keep-html` to keep the pages it renders).
 
 ## The spec
@@ -513,6 +516,8 @@ python -m mccontrol.rekey send --all                         # then every node o
 python -m mccontrol.rekey status
 python -m mccontrol.rekey finish                             # the next key becomes yours; the replaced one is kept
 ```
+
+![python -m mccontrol.rekey status, part way through a rotation](docs/screenshots/cli-rekey-status.png)
 
 Per node it sends `rekey <new public key>` signed with the key in use, then `ver` signed with the
 next key. The node takes the next key only when that second command arrives, so a lost or mistyped

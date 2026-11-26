@@ -4,10 +4,12 @@
 Builds a scratch home (never ~/.config/mccontrol) with ten invented repeaters -- names, keys,
 regions and firmware made up here, checked against the real fleet's keys in the test data --
 with a history, reads, command sets and a Beacon statistics series, all served through the fake
-transport and the fake Beacon the tests use. Each interface runs in a pseudo-terminal and is
+transport and the fake Beacon the tests use. It is a lou-20 fleet: most nodes found by their alive
+message and kept without a region, one without Wi-Fi reached through a relay, one on lou-18. Each interface runs in a pseudo-terminal and is
 driven through a few states; the screen is kept by a small colour terminal emulator, written
 out as HTML in the interface's own colours, and headless Chromium turns that into
-`docs/screenshots/<interface>-<state>.png`. Rerun it when the screens change.
+`docs/screenshots/<interface>-<state>.png`. Two command lines are run over the same home and
+drawn the same way (`cli-<what>.png`). Rerun it when the screens change.
 
     python scripts/screenshots.py [--only monolith-board] [--out docs/screenshots] [--keep-html]
 """
@@ -40,13 +42,18 @@ from mccontrol import store as _store           # noqa: E402
 
 # -- the invented fleet -----------------------------------------------------------------
 
-REGIONS = ("ZQV", "ZQW")                                     # not codes the real fleet uses
-FLEET = [  # name, region, firmware revision, battery mV, tx delay, autoreply on
-    ("Lighthouse-North", "ZQV", 11, 4180, "0.7", "on"), ("Old-Mill", "ZQV", 11, 3920, "0.5", "on"),
-    ("Water-Tower", "ZQV", 10, 4105, "1.0", "off"), ("Church-Spire", "ZQV", 11, 3870, "0.5", "on"),
-    ("Ridge-East", "ZQV", 10, 4240, "0.8", "on"), ("Harbour", "ZQV", 11, 3995, "0.5", "on"),
-    ("Quarry-Hill", "ZQW", 11, 4060, "0.6", "on"), ("Allotments", "ZQW", 10, 3760, "0.5", "off"),
-    ("Fire-Station", "ZQW", 11, 4150, "0.9", "on"), ("School-Roof", "ZQW", 11, 4010, "0.5", "on"),
+HOMES = ("se-zqv", "se-zqw")                                 # invented region homes, as the nodes' alive names them
+OLD_REGION = "ZQV"                                           # the one IATA left: not a code the real fleet uses
+RELAY, NO_WIFI = "Quarry-Hill", "Allotments"                 # the node without Wi-Fi is reached through the relay
+# A lou-20 fleet: most nodes found by their alive message, with no region (`alive`); one on a
+# board without Wi-Fi, added by its key and reached over the mesh (`mesh`); one still on lou-18
+# and the old per-region scheme (`old`).
+FLEET = [  # name, region home, kind, battery mV, tx delay
+    ("Lighthouse-North", "se-zqv", "alive", 4180, "0.7"), ("Old-Mill", "se-zqv", "alive", 3920, "0.5"),
+    ("Water-Tower", "se-zqv", "old", 4105, "1.0"), ("Church-Spire", "se-zqv", "alive", 3870, "0.5"),
+    ("Ridge-East", "se-zqv", "alive", 4240, "0.8"), ("Harbour", "se-zqv", "alive", 3995, "0.5"),
+    ("Quarry-Hill", "se-zqw", "alive", 4060, "0.6"), ("Allotments", "se-zqw", "mesh", 3760, "0.5"),
+    ("Fire-Station", "se-zqw", "alive", 4150, "0.9"), ("School-Roof", "se-zqw", "alive", 4010, "0.5"),
 ]
 
 
@@ -54,10 +61,12 @@ def key_of(name):
     return hashlib.sha256(f"mccontrol-screenshot {name}".encode()).hexdigest().upper()
 
 
-def firmware(name, rev):
-    # The invented fleet runs the released images: lou-20 on most, lou-18 on the two that lag.
-    lou = 20 if rev >= 11 else 18
-    return f"esp32s3-v1.18.0-lou-{lou}-arrc-observer-{hashlib.sha256(name.encode()).hexdigest()[:7]}"
+def firmware(name, kind):
+    # The released images: the Observer one with auto-reply and the plane, the one for a board
+    # without Wi-Fi (the plane, no Observer bridge), and lou-18 on the node that lags.
+    lou, flavour = {"alive": (20, "arrc-observer"), "mesh": (20, "rc"), "old": (18, "arrc-observer")}[kind]
+    board = "rak4631" if kind == "mesh" else "esp32s3"
+    return f"{board}-v1.18.0-lou-{lou}-{flavour}-{hashlib.sha256(name.encode()).hexdigest()[:7]}"
 
 
 def check_invented():
@@ -75,6 +84,7 @@ def at(days, hour=9, minute=0):
 
 def build_home(where):
     """The scratch home, the fake broker's script and the fake Beacon's table."""
+    from mccontrol import actions
     home = where / "home"
     st = _store.Store(home)
     st.create_key()
@@ -82,49 +92,72 @@ def build_home(where):
     # test, kept as `register` and `test` keep them; nothing reaches it (the fake broker answers)
     st.save_config(broker="mqtt.example.org", port=8883, tls=True, beacon_url="http://beacon.example.org", wait_secs=4,
                    sets={"add-scope": ["region put {arg} *", "region allowf {arg}", "region save", "region"],
-                         "audit": ["ver", "get txdelay", "get autoreply"]})
+                         "audit": ["ver", "get txdelay", "get cmd"]})
     st.remember_registration("mqtt.example.org")
     st.remember_test("mqtt.example.org", 8883, True)
     (home / "history").mkdir(exist_ok=True)
     script, nodes, table = {}, [], {}
-    for i, (name, region, rev, mv, txdelay, ar) in enumerate(FLEET):
+    relay = {"node": key_of(RELAY)[:8], "name": RELAY, "route": "direct", "status": "answered", "sent": "direct", "snr": 5.5}
+    for i, (name, region_home, kind, mv, txdelay) in enumerate(FLEET):
         key = key_of(name)
         node = key[:8]
-        st.add_device(name, key, region)
-        observer = f"00000000-0000-4000-8000-{i:012d}"
-        ver = firmware(name, rev)
+        ver = firmware(name, kind)
+        observer = None if kind == "mesh" else f"00000000-0000-4000-8000-{i:012d}"
+        counter = int(time.time()) - 86400 + 60 * i
+        if kind == "alive":         # as discovery keeps a node whose alive message opened: its key, no region
+            fields = {"boot": 3 + i, "sequence": 40 + i, "uptime": 1209600 + i * 3600, "clock": int(time.time()) - 600,
+                      "last_counter": counter, "interval": 900, "flags": 0x01 | 0x10, "mesh": 2,
+                      "fingerprint": st.public_key()[:8], "version": ver, "region": region_home, "name": name}
+            actions.adopt(st, {"node": key, "key": key, "region": "",
+                               "alive": actions._alive_record(fields, "online", time.time() - 600)}, name)
+        else:                       # added by hand: by its key alone, or with the IATA the old scheme needs
+            st.add_device(name, key, OLD_REGION if kind == "old" else "", key=key)
+        heard = {"mesh": "last_heard_relay"}.get(kind, "last_heard_mqtt")
         st.update_device(node, ver=ver, observer_id=observer, last_sent=at(i % 4, 10 + i), last_result="ok",
-                         last_heard=at(i % 4, 10 + i), fleet={"battery_mv": mv, "seen": at(0, 11), "at": at(0, 11)})
-        verified = True if rev >= 11 else None
-        lines = [(at(5 + i % 3, 9), "ver", f"> {ver}", verified),
-                 (at(3, 10, i), "get txdelay", f"> {txdelay}", verified),
-                 (at(2, 14, i), "get autoreply", f"> {ar} #test-{region.lower()} 'test' max 8 hops, direct flood, mode flood, "
-                                                  f"private off", verified),
-                 (at(1, 16, i), "region", "> * F\n se-zqv F", verified)]
+                         last_heard=at(i % 4, 10 + i), **{heard: at(i % 4, 10 + i)},
+                         **({} if kind == "mesh" else {"fleet": {"battery_mv": mv, "seen": at(0, 11), "at": at(0, 11)}}))
+        topic = f"meshcore/{OLD_REGION}/{key}/cmd" if kind == "old" else f"mcc/cmd/{key}"
+        road = {"road": "relay", "relay": relay, "note": ""} if kind == "mesh" else \
+               {"road": "mqtt", "note": "" if kind == "old" else "mcc3"}
+        lines = [(at(5 + i % 3, 9), "ver", f"> {ver}", True),
+                 (at(3, 10, i), "get txdelay", f"> {txdelay}", True),
+                 (at(1, 16, i), "region", f"> * F\n {region_home} F", True)]
+        if kind == "old":           # the old scheme: auto-reply on the region's own test channel
+            lines.insert(2, (at(2, 14, i), "get autoreply", f"> on #test-{OLD_REGION.lower()} 'test' max 8 hops, direct flood, "
+                                                           f"mode flood, private off", True))
+        else:                       # what lou-20 brought: the plane's own line, and relaying
+            mesh = "mesh only, mesh on" if kind == "mesh" else "mesh on"
+            lines.insert(2, (at(2, 14, i), "get cmd", f"> on, counter {counter}, {mesh} ok {2 + i % 3} refused 0", True))
+        if kind == "alive":
+            lines.append((at(1, 16, 30 + i), "get relay", f"> own, forwarded {i % 4}, answered {i % 4}, refused 0", True))
         if name == "Old-Mill":
             lines.append((at(0, 9, 5), "set txdelay 0.5", "OK", True))
         if name == "Church-Spire":                          # someone else signing in its name
             lines.append((at(0, 8, 30), "get name", "> Totally-Legit", False))
         with (home / "history" / f"{node}.jsonl").open("w") as f:
             for when, command, reply, signed in lines:
-                f.write(json.dumps({"at": when, "command": command, "topic": f"meshcore/{region}/{key}/cmd", "code": 0,
-                                    "code_name": "ok", "reply": reply, "verified": signed, "note": ""}) + "\n")
+                f.write(json.dumps({"at": when, "command": command, "topic": topic, "code": 0, "code_name": "ok",
+                                    "reply": reply, "verified": signed, **road}) + "\n")
         devs = json.loads((home / "devices.json").read_text())
         entry = next(d for d in devs if d["node"] == node)
         entry["reads"] = {c: {"reply": r, "at": w, "seq": n, "verified": s}
                           for n, (w, c, r, s) in enumerate(lines) if s is not False and not c.startswith("set ")}
-        entry["reads"]["neighbors"] = {"reply": "> 3 neighbours", "at": at(1, 8), "seq": 9, "verified": verified}
+        entry["reads"]["neighbors"] = {"reply": "> 3 neighbours", "at": at(1, 8), "seq": 9, "verified": True}
         (home / "devices.json").write_text(json.dumps(devs, indent=2))
         script[node] = [0, "> * F"]
         script[f"{node}|ver"] = [0, f"> {ver}"]
         script[f"{node}|get name"] = [0, f"> {name}"]
         script[f"{node}|get txdelay"] = [0, f"> {txdelay}"]
         script[f"{node}|get rxdelay"] = [0, "> 0.0"]
+        script[f"{node}|get cmd"] = [0, lines[2][2] if kind != "old" else "> on"]
         script[f"{node}|get stats"] = [0, '> {"batt":%d,"up":1209600,"nf":-114}' % mv]
+        if observer is None:        # no Wi-Fi: not an observer, so Beacon has no status for it
+            continue
+        iata = OLD_REGION if kind == "old" else "ZQX"       # the Observer feed's own setting, not the plane's
         nodes.append({"id": f"node-{i}", "publicKey": key.lower(), "nodeType": 2, "nodeTypeName": "repeater", "name": name,
-                      "isObserver": True, "observerId": observer, "iatas": [{"iata": region, "lastHeard": int(time.time() * 1000)}]})
+                      "isObserver": True, "observerId": observer, "iatas": [{"iata": iata, "lastHeard": int(time.time() * 1000)}]})
         table[f"/observers/{observer}"] = {
-            "id": observer, "displayName": name, "observerType": f"meshcore/{ver}", "iata": region, "status": "online",
+            "id": observer, "displayName": name, "observerType": f"meshcore/{ver}", "iata": iata, "status": "online",
             "statusMetadata": {"model": "Heltec V3", "radio": "869.617981,62.5,8,5", "repeat": "on", "status": "online",
                                "firmware_version": ver, "stats": {
                                    "errors": i, "queue_len": 0, "battery_mv": mv, "noise_floor": -114 + i % 3,
@@ -140,9 +173,6 @@ def build_home(where):
              "airtimeRxSecs": 90 + n * 31 % 200, "noiseFloorDb": -116 + n % 4, "uptimeSeconds": 1200000 + n * 10800,
              "queueLength": 0, "receiveErrors": 30 + n * 17 % 90} for n in range(9)]}
     table["/nodes"] = {"items": nodes}
-    with (home / "history" / "all.jsonl").open("w") as f:
-        f.write(json.dumps({"at": at(1, 17), "command": "get name", "topic": "meshcore/ZQW/all/cmd", "code": None,
-                            "code_name": None, "reply": None, "verified": None, "note": "4 of 4 answered"}) + "\n")
     beacon = where / "beacon.json"
     beacon.write_text(json.dumps(table))
     return home, script, beacon
@@ -432,10 +462,52 @@ STATES = [
     ("ibmi-summary", "IBMi", 80, 24, [], 0.6, 0),
     ("ibmi-devices", "IBMi", 120, 40, [(b"1\r", 0.8)], 0.6, 0),
     ("ibmi-facts", "IBMi", 120, 40, [(b"1\r", 0.8), (DOWN, 0.2), (b"8\r", 0.8)], 0.6, 0),
-    ("ibmi-command-entry", "IBMi", 120, 40, [(b"1\r", 0.8), (b"tag ZQW\r", 0.6), (b"cmd\r", 0.6), (b"get txdelay\r", 2.5),
-                                             (b"ver\r", 2.5)], 0.6, 0),
+    ("ibmi-command-entry", "IBMi", 120, 40, [(b"1\r", 0.8)] + [(DOWN, 0.2), (b"1", 0.2)] * 4 + [
+        (ENTER, 0.6), (b"cmd\r", 0.6), (b"get txdelay\r", 2.5), (b"ver\r", 2.5)], 0.3, 0),   # four waits fit the 2.5 s
     ("ibmi-history", "IBMi", 120, 40, [(b"12\r", 1.0)], 0.6, 0),
 ]
+
+
+# -- the command line ---------------------------------------------------------------------
+
+MCCONTROL = ["-c", "import sys; from mccontrol import cli; sys.exit(cli.main(sys.argv[1:]))"]
+
+
+def rotation(home):
+    """A key rotation under way in the scratch home: a next key (invented here, like the first),
+    most nodes on it, one offered and not yet confirmed, the rest still to do."""
+    from mccontrol import rekey
+    st = _store.Store(home)
+    rekey.start(st)
+    for name, state in [("Lighthouse-North", rekey.NEW), ("Old-Mill", rekey.NEW), ("Church-Spire", rekey.NEW),
+                        ("Harbour", rekey.NEW), ("Allotments", rekey.NEW), ("Ridge-East", rekey.OFFERED)]:
+        rekey._set_state(st, key_of(name)[:8], state)
+
+
+# (file name, columns, what to do to the home first, the command lines as typed and as run)
+CLI_STATES = [
+    ("cli-rekey-status", 100, rotation, [("python -m mccontrol.rekey status", ["-m", "mccontrol.rekey", "status"])]),
+    ("cli-relay-send", 100, None, [
+        (f"mccontrol send {NO_WIFI.lower()} ver --via relay:{RELAY.lower()}",
+         MCCONTROL + ["send", NO_WIFI.lower(), "ver", "--via", f"relay:{RELAY.lower()}"]),
+        (f"mccontrol send {NO_WIFI.lower()} get cmd --via relay:{RELAY.lower()} --route flood",
+         MCCONTROL + ["send", NO_WIFI.lower(), "get", "cmd", "--via", f"relay:{RELAY.lower()}", "--route", "flood"])]),
+]
+
+
+def capture_cli(commands, cols, home, script, beacon):
+    """Run each command line over the scratch home and return the screen a terminal `cols`
+    wide would show: a prompt with the line as typed, then what it printed."""
+    env = dict(os.environ, MCCONTROL_HOME=str(home), MCCONTROL_FAKE_RESULTS=json.dumps(script),
+               MCCONTROL_FAKE_BEACON=str(beacon), MCCONTROL_FAKE_WAIT="0", LANG="C.UTF-8", LC_ALL="C.UTF-8")
+    shown = []
+    for typed, argv in commands:
+        done = subprocess.run([sys.executable] + argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+        shown.append((typed, done.stdout.rstrip("\n").split("\n")))
+    rows = sum(1 + sum(max(1, -(-len(line) // cols)) for line in out) for _typed, out in shown) + len(shown) - 1
+    screen = Screen(cols, rows)
+    screen.feed("\r\n\r\n".join(f"\x1b[1;32m$\x1b[0;1m {typed}\x1b[0m\r\n" + "\r\n".join(out) for typed, out in shown))
+    return screen
 
 
 def main(argv=None):
@@ -459,6 +531,19 @@ def main(argv=None):
             page.write_text(to_html(screen, f"mccontrol {ui}"), encoding="utf-8")
             to_png(page, out / f"{name}.png", cols, rows)
             print(f"{out / name}.png  {cols}x{rows}")
+        for name, cols, prepare, commands in CLI_STATES:
+            if args.only and name not in args.only:
+                continue
+            where = pathlib.Path(tmp) / name
+            where.mkdir()
+            home, script, beacon = build_home(where)
+            if prepare:
+                prepare(home)
+            screen = capture_cli(commands, cols, home, script, beacon)
+            page = (out if args.keep_html else where) / f"{name}.html"
+            page.write_text(to_html(screen, name), encoding="utf-8")
+            to_png(page, out / f"{name}.png", cols, screen.rows)
+            print(f"{out / name}.png  {cols}x{screen.rows}")
     return 0
 
 
