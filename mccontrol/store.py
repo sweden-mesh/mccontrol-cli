@@ -68,6 +68,9 @@ FORMER_BROKERS = ("mqtt.meshcore-jkp.se", "mqtt.louie.se")
 # is moved to the current one like a former broker.
 FORMER_BEACONS = ("https://beacon.meshat.se/api/v1", "https://beacon.meshcore-jkp.se/api/v1")
 
+LOGIN_FILE = "login.json"
+LOGIN_KEEP_SECS = 6 * 3600      # the throwaway login key is kept this long, then replaced
+
 SHORTCUT_SLOTS = 9
 DEFAULT_SHORTCUTS = ["region", "ver", "get name", "get autoreply", "get radio", "get repeat"]
 
@@ -187,6 +190,31 @@ class Store:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
         os.chmod(path, 0o600)
+
+    # -- the login key ------------------------------------------------------------------
+
+    def login_seed(self, now=None, fresh=False):
+        """`(seed, new)`: the throwaway key the tool signs in to the command server with, kept
+        in `login.json` (private) for `LOGIN_KEEP_SECS`, so that a series of commands is one
+        login key to the server and not one each. `new` says it was drawn now: when there was
+        none, when the kept one is too old, damaged or readable by others, or with `fresh`
+        (the server refused the kept one). It signs the login and nothing else, and is drawn
+        at random: nothing in it comes from the command key."""
+        import time
+        path = self.root / LOGIN_FILE
+        now = time.time() if now is None else now
+        kept = self._read_json(path, None)
+        try:
+            ok = (not fresh and len(bytes.fromhex(kept["seed"])) == 32
+                  and 0 <= now - float(kept["created"]) < LOGIN_KEEP_SECS
+                  and not stat.S_IMODE(path.stat().st_mode) & 0o077)
+        except (TypeError, KeyError, ValueError, OSError):
+            ok = False
+        if ok:
+            return kept["seed"], False
+        seed = envelope.generate_seed()
+        self._write_private(path, json.dumps({"seed": seed, "created": int(now)}) + "\n")
+        return seed, True
 
     # -- config ------------------------------------------------------------------------
 

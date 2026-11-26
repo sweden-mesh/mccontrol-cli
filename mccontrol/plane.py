@@ -6,11 +6,16 @@ its result comes back on `mcc/r/<RID>`, a reply topic named only inside the seal
 and the owner finds its nodes by opening the retained `mcc/alive/<KEY>` messages.
 
 The command key signs and seals; it never touches the broker. The broker login is a
-throwaway key drawn once per session (this process), as is the RID, so the broker sees
-neither the owner nor which session belongs to whom (RC-ALIVE decision 6). The broker takes
-`mcc/cmd` only on its TLS listener.
+throwaway key, drawn at random and kept beside the store for some hours (`Store.login_seed`),
+because the broker admits only so many new login keys an hour from one address; the RID is
+drawn once per process. Neither comes from the command key, so the broker sees no owner
+(RC-ALIVE decision 6). The broker takes `mcc/cmd` only on its TLS listener.
+
+A run of commands (`run`) shares one connection, since the broker also counts new
+connections per address.
 """
 
+import contextlib
 import threading
 import time
 
@@ -21,7 +26,8 @@ _session_lock = threading.Lock()
 
 
 def session():
-    """`{seed, rid}`: the throwaway broker login and the reply id, drawn once per process."""
+    """`{seed, rid}`: the reply id, drawn once per process, and a login key for a caller
+    that has no store to keep one in."""
     global _session
     with _session_lock:
         if _session is None:
@@ -30,7 +36,7 @@ def session():
 
 
 def new_session():
-    """Forget the session: the next connection draws a new login key and RID."""
+    """Forget the session: the next command draws a new RID."""
     global _session
     with _session_lock:
         _session = None
@@ -42,15 +48,80 @@ def _login_config(config):
     return dict(config, username="", password="")
 
 
-def _connect(config, client_factory=None):
-    s = session()
+NOT_AUTHORIZED = ("{broker} refused the login (not authorized). The likely cause: too many new logins from this "
+                  "address in the last hour (the server admits 60 new login keys an hour and 30 new connections "
+                  "a minute from one address). Wait, up to an hour, and send again; nothing was sent.")
+
+
+def _dial(config, client_factory=None, store=None):
+    """A signed-in connection. The login is the key kept in `store` (without one, this
+    process's own); a kept key the broker refuses is replaced once, and a new key refused
+    is said with its likely cause."""
     cfg = _login_config(config)
-    client = (client_factory or transport._client)(cfg, s["seed"])
-    return client, cfg, s
+    seed, new = (session()["seed"], True) if store is None else store.login_seed()
+    while True:
+        client = (client_factory or transport._client)(cfg, seed)
+        try:
+            transport._connect(client, cfg, seed_hex=seed)
+            return client
+        except transport.Refused as exc:
+            if not exc.not_authorized:
+                raise
+            if new:
+                raise transport.BrokerError(NOT_AUTHORIZED.format(broker=config["broker"])) from None
+            seed, new = store.login_seed(fresh=True)
+
+
+def _hang_up(client):
+    client.loop_stop()
+    client.disconnect()
+
+
+_held = threading.local()
+
+
+@contextlib.contextmanager
+def run():
+    """One connection for the commands sent inside (this thread's): opened by the first that
+    needs one, closed at the end. A run inside a run is the same run."""
+    if getattr(_held, "run", None) is not None:
+        yield
+        return
+    _held.run = {}
+    try:
+        yield
+    finally:
+        held, _held.run = _held.run, None
+        if held.get("client") is not None:
+            _hang_up(held["client"])
+
+
+@contextlib.contextmanager
+def _connection(config, client_factory=None, store=None):
+    """The run's connection when there is a run (dialled again if it dropped or the broker is
+    another), else one opened and closed here."""
+    held = getattr(_held, "run", None)
+    if held is None:
+        client = _dial(config, client_factory, store)
+        try:
+            yield client
+        finally:
+            _hang_up(client)
+        return
+    at = (config["broker"], config.get("port"))
+    client = held.get("client")
+    if client is not None and (held["at"] != at or not getattr(client, "is_connected", lambda: True)()):
+        held["client"] = None
+        _hang_up(client)
+        client = None
+    if client is None:
+        client = _dial(config, client_factory, store)
+        held.update(client=client, at=at)
+    yield client
 
 
 def send(config, seed_hex, node_key_hex, command, counter, keys=None, wait_secs=20.0, ttl_secs=None,
-         progress=None, script=None, client_factory=None, now=None):
+         progress=None, script=None, client_factory=None, now=None, store=None):
     """Seal `command` for the node with `node_key_hex`, publish it on `mcc/cmd/<KEY>` and wait
     for its sealed result on this session's RID. Returns `(topic, payload, {node: Result})`;
     a missing node is silence. The result opens only under K_cmd, which only the node and
@@ -89,17 +160,12 @@ def send(config, seed_hex, node_key_hex, command, counter, keys=None, wait_secs=
         answers[node] = envelope.Result(node, counter, r["code"], r["command"] or command, r["reply"], True)
         done.set()
 
-    client, cfg, s = _connect(config, client_factory)
-    client.on_message = on_message
-    transport._connect(client, cfg, seed_hex=s["seed"])
-    try:
+    with _connection(config, client_factory, store) as client:
+        client.on_message = on_message
         client.subscribe(reply, qos=1)
         info = client.publish(topic, payload, qos=1)
         info.wait_for_publish(timeout=10)
         transport._wait(wait_secs, done.is_set, lambda: list(answers), progress)
-    finally:
-        client.loop_stop()
-        client.disconnect()
     return topic, payload, dict(answers)
 
 
@@ -124,7 +190,7 @@ def forward_payload(relay_keys, relay_key_hex, counter, target_key_hex, route, b
 
 
 def forward(config, relay_key_hex, relay_keys, payload, counter, wait_secs=FORWARD_WAIT_SECS, progress=None,
-            client_factory=None):
+            client_factory=None, store=None):
     """Publish a sealed forward (`forward_payload`) on the relay's `mcc/cmd/<KEY>` and wait for
     its result on this session's RID. Returns `(topic, result)`: what `mcc3.open_forward_result`
     gives under the relay's K_fwd for this forward counter, or None when the relay said
@@ -150,17 +216,12 @@ def forward(config, relay_key_hex, relay_keys, payload, counter, wait_secs=FORWA
         got.append(r)
         done.set()
 
-    client, cfg, s = _connect(config, client_factory)
-    client.on_message = on_message
-    transport._connect(client, cfg, seed_hex=s["seed"])
-    try:
+    with _connection(config, client_factory, store) as client:
+        client.on_message = on_message
         client.subscribe(reply, qos=1)
         info = client.publish(topic, payload, qos=1)
         info.wait_for_publish(timeout=10)
         transport._wait(wait_secs, done.is_set, lambda: [], progress)
-    finally:
-        client.loop_stop()
-        client.disconnect()
     return topic, got[0] if got else None
 
 
@@ -190,7 +251,7 @@ def newer(fields, than):
     return (fields["boot"], fields["sequence"]) > (than.get("boot", -1), than.get("sequence", -1))
 
 
-def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None):
+def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None, store=None):
     """Subscribe `mcc/alive/+` and read the retained snapshot (and any live update) for
     `wait_secs`. Returns `{KEY: (state, fields, received_at)}`, the newest per node, states
     as `open_alive`. Reads only: nothing is published."""
@@ -213,17 +274,12 @@ def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=
         refused.extend(str(c) for c in codes
                        if (c.is_failure if hasattr(c, "is_failure") else int(c) >= 128))
 
-    client, cfg, s = _connect(config, client_factory)
-    client.on_message = on_message
-    client.on_subscribe = on_subscribe
-    transport._connect(client, cfg, seed_hex=s["seed"])
-    try:
+    with _connection(config, client_factory, store) as client:
+        client.on_message = on_message
+        client.on_subscribe = on_subscribe
         client.subscribe(mcc3.ALIVE_FILTER, qos=1)
         transport._wait(wait_secs, lambda: bool(refused),
                         lambda: [k for k, v in list(seen.items()) if v[0] == "ours"], progress)
-    finally:
-        client.loop_stop()
-        client.disconnect()
     if refused:
         raise transport.BrokerError(f"{config['broker']} refused the subscription to {mcc3.ALIVE_FILTER}: "
                                     f"{', '.join(refused)}")

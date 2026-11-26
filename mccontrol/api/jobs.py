@@ -12,7 +12,7 @@ import itertools
 import threading
 import uuid
 
-from .. import actions, beacon, denylist, envelope, firmware, mcc3, mesh, store as _store, transport
+from .. import actions, beacon, denylist, envelope, firmware, mcc3, mesh, plane, store as _store, transport
 from .errors import ApiError, bad, classify, not_found
 from .routes import device_of, devices_of
 
@@ -82,6 +82,7 @@ class Registry:
             for old in done[:max(0, len(self.jobs) - KEEP)]:
                 del self.jobs[old.id]
 
+        @plane.run()            # the commands of one job share a connection
         def run():
             result, error = None, None
             try:

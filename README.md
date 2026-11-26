@@ -30,7 +30,7 @@ mcc3; mccontrol-spec's wire format has the bytes):
 - **Per node, sealed.** A command goes to one node only, on `mcc/cmd/<KEY>` (its whole public
   key), encrypted to that node and signed inside; the answer comes back encrypted to you on a
   reply topic named only inside the command. The broker sees neither the command nor who sent
-  it: mccontrol signs in with a throwaway key drawn for each session. There is no IATA, no
+  it: mccontrol signs in with a throwaway key, replaced every six hours. There is no IATA, no
   region and no broadcast topic, and every node uses the shared broker.
 - **Discovery from alive.** Each lou-20 Observer node keeps a sealed "alive" message on the broker
   (`mcc/alive/<KEY>`, soon after it connects and then about every 15 minutes; `set alive.interval
@@ -411,8 +411,14 @@ Nothing is handed out or typed; the key is the identity, and that is how the def
 `mqtt-meshcore.louie.se` knows who publishes. A login from the broker's password file sets its username
 and password, and those are used instead.
 
-The lou-20 plane (mcc3) signs in differently: with a throwaway key drawn for each session, so
-the broker never learns which key owns which commands; your key only signs and seals.
+The lou-20 plane (mcc3) signs in differently: with a throwaway key drawn at random, so
+the broker never learns which key owns which commands; your key only signs and seals. The
+throwaway is kept in `login.json` beside your key (readable only by you) and replaced after six
+hours, or at once when the broker refuses it, and the commands of one run (an area, a group, a
+set) share one connection. The broker admits 60 new login keys an hour and 30 new connections a
+minute from one address; a login refused as `not authorized` most likely means one of those was
+passed: wait, up to an hour. For those six hours the broker can tell that the commands came
+from one user of the tool, though not which key owns them.
 
 ## The configuration is the control brokers
 

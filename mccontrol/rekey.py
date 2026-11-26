@@ -126,7 +126,7 @@ def _send(store, signer, command, device, via="mqtt", relay=None, route="direct"
     payload = plane.forward_payload(relay_keys, relay_key, forward_counter, key, mcc3.ROUTES.index(route), body,
                                     path_len=path_len, path=hops)
     _topic, got = plane.forward(hop.config(), relay_key, relay_keys, payload, forward_counter,
-                                wait_secs=wait_secs or plane.FORWARD_WAIT_SECS)
+                                wait_secs=wait_secs or plane.FORWARD_WAIT_SECS, store=hop)
     if got is None:
         return False, "the relay said nothing"
     if got["status"] != mcc3.FORWARD_ANSWERED:
@@ -250,10 +250,11 @@ def main(argv=None):
                         raise RekeyError(f"no such relay: {via[6:]}")
                     via = "relay"
             bad = 0
-            for d in devices:
-                state, lines = rotate(store, d, via=via, relay=relay, route=args.route, path=args.path)
-                print("\n".join(lines))
-                bad += state != NEW
+            with plane.run():           # one connection for every node
+                for d in devices:
+                    state, lines = rotate(store, d, via=via, relay=relay, route=args.route, path=args.path)
+                    print("\n".join(lines))
+                    bad += state != NEW
             return 1 if bad else 0
         if args.action == "finish":
             public, kept, left = finish(store, leave_behind=args.leave_behind)

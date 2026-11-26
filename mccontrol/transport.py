@@ -16,6 +16,18 @@ class BrokerError(Exception):
     pass
 
 
+class Refused(BrokerError):
+    """The broker answered the connection with a refusal; `why` is its reason as paho names it."""
+
+    def __init__(self, text, why=""):
+        super().__init__(text)
+        self.why = why
+
+    @property
+    def not_authorized(self):
+        return "not authori" in self.why.lower()
+
+
 def login(config, seed_hex=None):
     """`(username, password)` for the broker: the configured pair when a username is set (a
     login from the broker's password file), else the tool's own key as a token the way a node signs in --
@@ -59,7 +71,7 @@ def _connect(client, config, timeout=10.0, seed_hex=None):
         raise BrokerError(f"{config['broker']} did not answer the connection in {timeout:.0f} s")
     if not verdict.get("ok"):
         client.loop_stop()
-        raise BrokerError(f"{config['broker']} refused the connection: {verdict.get('why')}")
+        raise Refused(f"{config['broker']} refused the connection: {verdict.get('why')}", verdict.get("why") or "")
 
 
 FAKE_WAIT_SECS = float(os.environ.get("MCCONTROL_FAKE_WAIT", "0.6"))   # a faked send still waits a little, so a bar can be seen to move

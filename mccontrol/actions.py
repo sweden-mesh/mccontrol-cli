@@ -220,6 +220,7 @@ def area_refusal(command):
     return None
 
 
+@plane.run()             # one connection for the whole run
 def act(store, command, devices, label, dry_run=False, wait_secs=None, progress=None, script=None, via="mqtt",
         rng=random):
     """`command` to each of `devices`, one sealed per-node command each (never a broadcast),
@@ -548,7 +549,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     else:
         _topic, got = plane.forward(config, relay_key, relay_keys, payload, forward_counter,
                                     wait_secs=wait_secs or max(config.get("wait_secs", 20), plane.FORWARD_WAIT_SECS),
-                                    progress=progress)
+                                    progress=progress, store=store)
         result = None
         if got is not None and got["status"] == mcc3.FORWARD_ANSWERED:
             result = mesh.parse_mcc3(keys, got["response"], node, command, counter)
@@ -655,7 +656,7 @@ def _send_mcc3(store, config, command, device, dry_run, wait_secs, progress, scr
     counter = store.next_counter(device["node"])
     topic, payload, answers = plane.send(config, store.seed(), key, command, counter, keys=keys,
                                          wait_secs=wait_secs or config.get("wait_secs", 20),
-                                         progress=progress, script=script)
+                                         progress=progress, script=script, store=store)
     lines = []
     mismatch = private_mismatch(store, device, command)
     if mismatch:
@@ -677,6 +678,7 @@ def fill(steps, arg):
     return [s.replace("{arg}", (arg or "").strip()) for s in steps]
 
 
+@plane.run()             # one connection for the whole run
 def run_set(store, steps, device=None, region=None, dry_run=False, wait_secs=None, on_step=None, progress=None,
             script=None, county=None):
     """Send `steps` in order to one device (or to each of your devices in `region` or
@@ -784,6 +786,7 @@ def refresh_fleet(store, devices, now=None):
     return updated, failed
 
 
+@plane.run()             # one connection for the whole run
 def refresh_names(store, devices, wait_secs=None, progress=None, script=None):
     """`get name` and `ver` to each device, one signed read each: an unnamed device takes the
     fleet's name, every device stores `ver`. Returns `(named, versioned, lines)`. A node whose
@@ -946,7 +949,7 @@ def discover_alive(store, wait_secs=None, progress=None, add=False, client_facto
     cache = store.ecdh_cache()
     before = len(cache)
     seen = plane.scan(config, seed, cache, wait_secs=wait_secs or min(10, config.get("wait_secs", 20)),
-                      progress=progress, client_factory=client_factory)
+                      progress=progress, client_factory=client_factory, store=store)
     if len(cache) != before:
         store.save_ecdh_cache(cache)
     by_key = {(d.get("key") or "").upper(): d for d in store.devices() if d.get("key")}
