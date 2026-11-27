@@ -80,6 +80,18 @@ def _get(config, path, params=None):
         raise BeaconError(f"Beacon unreachable at {base_url(config)}: {exc}") from None
 
 
+def node_name(config, key_hex):
+    """The name Beacon knows a node by, from its adverts (a stranger's Observer that caught one
+    of your nodes' announces, lou-21), or None. One `/nodes?pubkeyPrefix=` read."""
+    prefix = (key_hex or "").lower()
+    try:
+        items = _get(config, "/nodes", {"pubkeyPrefix": prefix, "limit": 2}).get("items", [])
+    except BeaconError:
+        return None
+    hits = [i for i in items if (i.get("publicKey") or "").lower().startswith(prefix)]
+    return hits[0].get("name") if len(hits) == 1 else None
+
+
 def observer_for(store, device, refresh=False):
     """Beacon's observer id for a device, cached on the device as `observer_id`.
 

@@ -331,6 +331,7 @@ class App:
                         *([f"Announced  :  {d['heard_line']}"
                            + (f"; battery {d['battery']}" if "heard by" in (d.get("battery") or "") else "")]
                           if d.get("heard_line") else []),
+                        *([f"Relays . . :  {d['relays_line']}"] if d.get("relays_line") else []),
                         f"Notes  . . :  {d.get('notes') or ''}"]
             lst.set_rows([(fmt.history_row(line), "normal", line) for line in reversed(hist)])
             key, picks, _c = lst.run()

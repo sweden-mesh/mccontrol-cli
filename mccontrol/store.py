@@ -376,6 +376,8 @@ class Store:
         entry = {"name": name, "node": node, "region": region, "notes": notes.strip(), "added": _now(),
                  "last_sent": None, "last_result": None, "key": key}
         devices.append(entry)
+        if self.has_key() and node in self.hidden():
+            self.unhide(node)           # added again by hand: discover may keep it current
         self._write_json(self.root / "devices.json", devices)
         return entry
 
@@ -389,6 +391,9 @@ class Store:
         raise StoreError("no such device")
 
     def remove_device(self, node):
+        gone = next((d for d in self.devices() if d["node"] == node), None)
+        if gone is not None and gone.get("heard"):
+            self.hide(node)             # found in the shared node store: it would come back on the next discover
         devices = [d for d in self.devices() if d["node"] != node]
         self._write_json(self.root / "devices.json", devices)
         groups = self._read_json(self.root / "groups.json", {})
@@ -460,6 +465,52 @@ class Store:
         self.update_device(node, relay_paths=paths)
         return old, after
 
+    def next_guest_counter(self, relay_key_hex, now=None):
+        """The counter for the next guest forward through a stranger's relay (lou-21), stored
+        before it is sent: `max(now, last + 1)`, kept per relay key for this command key."""
+        import time
+        kept = self._keyed("guest-counters")
+        key = envelope.node_key(relay_key_hex)
+        counter = max(int(time.time() if now is None else now), int(kept.get(key) or 0) + 1)
+        kept[key] = counter
+        self._save_keyed("guest-counters", kept)
+        return counter
+
+    # -- the shared node store (lou-21) ------------------------------------------------
+    # Per command key: the stamp (boot, sequence, report) of every entry tried, so a later
+    # discover opens only what is new or changed, and the nodes forgotten after the store found
+    # them, so it does not add them again.
+
+    def _keyed_path(self, name):
+        return self.root / name / f"{self.public_key()[:16]}.json"
+
+    def _keyed(self, name):
+        return dict(self._read_json(self._keyed_path(name), {}))
+
+    def _save_keyed(self, name, data):
+        path = self._keyed_path(name)
+        path.parent.mkdir(exist_ok=True)
+        self._write_json(path, data)
+
+    def tried(self):
+        """`{node KEY: "boot.sequence.report"}`, a `!` at the end for one that opened under this key."""
+        return self._keyed("node-store")
+
+    def save_tried(self, tried):
+        self._save_keyed("node-store", tried)
+
+    def hidden(self):
+        """The nodes (8 hex) forgotten after the shared node store found them: kept out of discover."""
+        return set(self._keyed("hidden").get("nodes") or [])
+
+    def hide(self, node):
+        nodes = self.hidden() | {node.upper()}
+        self._save_keyed("hidden", {"nodes": sorted(nodes)})
+
+    def unhide(self, node):
+        nodes = self.hidden() - {node.upper()}
+        self._save_keyed("hidden", {"nodes": sorted(nodes)})
+
     # -- mcc3: the shared secret with each node (IATA-2) --------------------------------
 
     def _ecdh_path(self):
@@ -488,6 +539,15 @@ class Store:
             if cache is None:
                 self.save_ecdh_cache(own)
         return mcc3.derive(bytes.fromhex(secret), key)
+
+    def guest_keys(self, relay_key_hex):
+        """K_gfwd for a guest forward through a stranger's relay (lou-21), from the cached S."""
+        key = envelope.node_key(relay_key_hex or "")
+        own = self.ecdh_cache()
+        if own.get(key) is None:
+            own[key] = mcc3.shared_secret(self.seed(), key).hex()
+            self.save_ecdh_cache(own)
+        return mcc3.guest_keys(bytes.fromhex(own[key]), key)
 
     # -- groups (RM-4) -----------------------------------------------------------------
     # A group is a name and the node ids of its members, kept here and nowhere else: a send

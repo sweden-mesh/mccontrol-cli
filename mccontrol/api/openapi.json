@@ -2390,8 +2390,14 @@
      "heard_line": {
       "type": "string",
       "nullable": true,
-      "description": "a node without Wi-Fi that announced itself: who heard it, when, the SNR and the hops",
+      "description": "a node without Wi-Fi that announced itself: who heard it, when, the SNR and the hops; silent: before it after about two days without a newer announce",
       "example": "heard by cabin-observer 9 h ago, -5.5 dB, 2 hops"
+     },
+     "relays_line": {
+      "type": "string",
+      "nullable": true,
+      "description": "the Observers that caught its announce (lou-21), in the order a relay is chosen: yours first, then the fewest hops, then the best SNR; one with no answer twice in a row last",
+      "example": "cabin-observer (yours, direct, 5 dB), 7316CA78 (2 hops, -4 dB)"
      }
     },
     "example": {
@@ -3702,7 +3708,7 @@
      },
      "relay": {
       "type": "string",
-      "description": "with via relay: the device that relays, by name or node id; it must be on MQTT and run lou-20 or later"
+      "description": "with via relay: the device that relays, by name or node id; it must be on MQTT and run lou-20 or later. From lou-21 also an Observer that caught the node's announce, yours or someone else's (by name, node id or key; someone else's gets a guest forward), or auto: the best of those"
      },
      "route": {
       "type": "string",

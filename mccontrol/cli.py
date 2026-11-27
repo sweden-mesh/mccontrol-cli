@@ -90,7 +90,7 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true", help="sign and print, send nothing")
     s.add_argument("--yes", action="store_true", help="do not ask about a command that takes something away")
     s.add_argument("--via", type=_road, default="mqtt", metavar="{mqtt,mesh,auto,relay:DEVICE}",
-                   help="the road: mqtt (default); mesh, through your companion (one node, <= 57 bytes to lou-20 and 59 to lou-19, the Wi-Fi and command-slot repair admitted; the answer to a flooded send takes up to a minute); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable; relay:DEVICE, a node of yours on MQTT (lou-20) sends it over the mesh and returns the answer (one node, the mesh road's rules, never chosen by auto)")
+                   help="the road: mqtt (default); mesh, through your companion (one node, <= 57 bytes to lou-20 and 59 to lou-19, the Wi-Fi and command-slot repair admitted; the answer to a flooded send takes up to a minute); auto, the mesh when the node is mesh only or not heard over MQTT for a while, or the broker is unreachable; relay:DEVICE, a node of yours on MQTT (lou-20) sends it over the mesh and returns the answer (one node, the mesh road's rules, never chosen by auto); from lou-21 also relay:OBSERVER, one that caught the node's announce, yours or someone else's, or relay:auto, the best of those")
     s.add_argument("--route", choices=("direct", "flood", "flood-wide"),
                    help="with relay: direct (default; no hops, or the path the last answer taught), flood (the "
                         "relay's region home; one a minute for 15 minutes, then one in five) or flood-wide (the relay's "
@@ -330,7 +330,8 @@ def _devices(api, _args):
         where = d["scheme"] if d.get("scheme") == "mcc3" else (d.get("region") or "?")   # an IATA only where it is used
         print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {where:4}  via {d['broker']:24} "
               f"last sent {d['last_sent'] or '-':20} {d['last_result'] or '':12} {d['notes']}"
-              + (f"  {d['heard_line']}; battery {d['battery'] or 'unknown'}" if d.get("heard_line") else ""))
+              + (f"  {d['heard_line']}; battery {d['battery'] or 'unknown'}" if d.get("heard_line") else "")
+              + (f"; relays {d['relays_line']}" if d.get("relays_line") else ""))
     return 0
 
 
@@ -348,6 +349,19 @@ def _device(api, ref):
         if exc.status != 404:
             raise
         raise ApiError(exc.code, f"no device matches {ref!r}; see 'mccontrol devices'", exc.status) from None
+
+
+def _relay_ref(api, ref):
+    """A relay as the API takes it: a device of yours by its node id; `auto`, or an Observer
+    that is not yours (lou-21, one that caught the node's announce), as typed."""
+    if ref.lower() == "auto":
+        return ref
+    try:
+        return api.device(ref)["node"]
+    except ApiError as exc:
+        if exc.status != 404:
+            raise
+        return ref
 
 
 def _area(args):
@@ -380,7 +394,7 @@ def _send(api, args, command=None):
     if via.startswith("relay:"):
         if device is None:
             raise ApiError("refused", "a relay carries a command to one node at a time; an area goes over MQTT", 0)
-        through = {"relay": _device(api, via[6:].strip())["node"], "route": route, "path": path}
+        through = {"relay": _relay_ref(api, via[6:].strip()), "route": route, "path": path}
         via = "relay"
     elif route or path is not None:
         raise ApiError("usage", "--route and --path go with --via relay:DEVICE", 0)

@@ -83,16 +83,43 @@ def battery_text(device, now=None):
                                                                else "from Beacon")
 
 
+ANNOUNCE_SILENT_HOURS = 48     # a node that announces every 12 or 23 hours: silent after this
+
+
+def announce_silent(device, now=None):
+    """A node without Wi-Fi with no newer announce for about two days."""
+    at = _when((device.get("heard") or {}).get("at"))
+    now = now or datetime.datetime.now()
+    return at is not None and (now - at).total_seconds() > ANNOUNCE_SILENT_HOURS * 3600
+
+
 def heard_text(device, now=None):
     """`heard by Vindskydd 9 h ago, -5.5 dB, 2 hops` for a node without Wi-Fi that announced
-    itself, else empty. The time is the catching node's; when its clock was unset, the time
-    the announce was read here, and said so."""
+    itself, else empty; `silent:` before it after about two days without a newer announce. The
+    time is the command server's, when the Observer handed the announce in."""
     h = device.get("heard") or {}
     if not h:
         return ""
     hops = "direct" if not h.get("hops") else f"{h['hops']} hop{'s' if h['hops'] != 1 else ''}"
-    return (f"heard by {h.get('by_name') or h.get('by')} {ago(h.get('at'), now)}"
-            f"{' (read then)' if h.get('at_read') else ''}, {h.get('snr', 0):g} dB, {hops}")
+    snr = "" if h.get("snr") is None else f", {h['snr']:g} dB"
+    return (f"{'silent: ' if announce_silent(device, now) else ''}heard by {h.get('by_name') or h.get('by')} "
+            f"{ago(h.get('at'), now)}{' (read then)' if h.get('at_read') else ''}{snr}, {hops}")
+
+
+def relays_text(device, devices=()):
+    """The Observers that caught a node's announce, in the order a relay is chosen (`devices`
+    are yours): `Vindskydd (yours, direct, 5 dB), 7316CA78 (2 hops, -4 dB, moved down: no answer
+    twice)`. Empty when none."""
+    from . import actions          # the ranking lives with the relay road
+    parts = []
+    for c in actions.rank_catchers(device, list(devices)):
+        hops = actions.catcher_hops(c)
+        said = ["yours"] if c["own"] else []
+        said += ["direct" if not hops else f"{hops} hop{'s' if hops != 1 else ''}", f"{c['snr']:g} dB"]
+        if c["demoted"]:
+            said.append("moved down: no answer twice")
+        parts.append(f"{c['name'] or c['node']} ({', '.join(said)})")
+    return ", ".join(parts)
 
 
 def stale(device, now=None, days=STALE_DAYS):

@@ -443,6 +443,29 @@ def relay_refusal(relay):
     return None
 
 
+def relay_for(store, device, ref):
+    """The relay `ref` names for a send to `device`: a device of yours, else (lou-21) an Observer
+    that caught `device`'s announce (by name, node id or key), as `{node, key, name, guest: True}`
+    when it is not yours. `auto` is the best of the catchers (`rank_catchers`): your own first,
+    else the fewest hops, then the best SNR, never one demoted for this node. None when nothing matches."""
+    ref = (ref or "").strip()
+    rows = rank_catchers(device, store.devices())
+    if ref.lower() == "auto":
+        pick = next((c for c in rows if not c["demoted"]), None)
+    else:
+        own = store.device(ref)
+        if own is not None:
+            return own
+        up = ref.upper()
+        pick = next((c for c in rows if (c["name"] and c["name"].lower() == ref.lower()) or c["key"] == up
+                     or (len(up) >= 4 and c["node"].startswith(up))), None)
+    if pick is None:
+        return None
+    if pick["own"]:
+        return next(d for d in store.devices() if (d.get("key") or "").upper() == pick["key"])
+    return {"node": pick["node"], "key": pick["key"], "name": pick["name"], "guest": True}
+
+
 def relay_path(text):
     """`(path length byte, path bytes)` from a path as typed: hex of one-byte hashes
     (`A1B2`), or `2:HEX` / `3:HEX` for longer hashes; empty or `none` is no hops."""
@@ -494,7 +517,8 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
         raise envelope.EnvelopeError("name the relay, a device of yours on MQTT: --via relay:<device>")
     if relay["node"] == device["node"]:
         raise envelope.EnvelopeError("a node cannot relay to itself; send it over MQTT")
-    why = relay_refusal(relay)
+    guest = bool(relay.get("guest"))        # a stranger's Observer that caught the node (lou-21): nothing known of it
+    why = None if guest else relay_refusal(relay)
     if why:
         raise envelope.EnvelopeError(why)
     if route not in mcc3.ROUTES:
@@ -525,10 +549,13 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     # one transmission each way, and only when the relay was told the node is its neighbour
     flags = mcc3.FLAG_ZERO_HOP if route == "direct" and not path_len & 63 else 0
     ttl = config.get("ttl_secs", envelope.DEFAULT_TTL_SECS)
-    relay_keys = store.owner_keys(relay_key)
+    relay_keys = store.guest_keys(relay_key) if guest else store.owner_keys(relay_key)
     relay_name, name = relay.get("name") or relay["node"], device.get("name") or device["node"]
     how = ROUTE_TEXT[route] + (f", {_hops(path_len, hops)}" if route == "direct" else "")
-    head = f"through relay {relay_name} ({how})"
+    head = f"through relay {relay_name} ({how}{', someone else' + chr(39) + 's Observer' if guest else ''})"
+    misses = int((device.get("relay_misses") or {}).get(relay["node"]) or 0)
+    if misses >= RELAY_DEMOTE_AFTER:
+        head += f"; moved down for {name}: no answer the last {misses} times through it"
     note = silence.path_note(path)          # sent as given; said under the result
     note = [f"{'':12} {note}"] if note else []
 
@@ -537,14 +564,15 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
 
     def seal(forward_counter, body):
         return plane.forward_payload(relay_keys, relay_key, forward_counter, key, mcc3.ROUTES.index(route), body,
-                                     path_len=path_len, path=hops, ttl_secs=ttl)
+                                     path_len=path_len, path=hops, ttl_secs=ttl,
+                                     guest_key_hex=store.public_key() if guest else None)
 
     if dry_run:
         payload = seal(0, build(0))
         return topic, payload, {}, [f"would send {head}", f"would publish to {mcc3.command_topic(relay_key)} "
                                     f"(mcc3, a sealed forward)", payload, "not sent (dry run)"] + note
     counter = store.next_counter(device["node"])
-    forward_counter = store.next_forward_counter(relay["node"])
+    forward_counter = store.next_guest_counter(relay_key) if guest else store.next_forward_counter(relay["node"])
     payload = seal(forward_counter, build(counter))
     node = device["node"]
     hit = transport._fake(topic, command, counter, [node], script)
@@ -568,7 +596,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
                 f"(get relay)?")
     else:
         status = got["status"]
-        said.update(status=mcc3.FORWARD_STATUSES[status] if status < len(mcc3.FORWARD_STATUSES) else f"unknown-{status}",
+        said.update(status=mcc3.status_name(status) or f"unknown-{status}",
                     sent={mcc3.SENT_DIRECT: "direct", mcc3.SENT_FLOOD: "flood"}.get(got["sent"]),
                     snr=None if got["snr"] is None else got["snr"] / 4)
         direct = route == "direct"
@@ -595,12 +623,20 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
             line = "an answer came that does not open with this node's key; ignored"
         elif status == mcc3.FORWARD_NO_ANSWER:
             line = "no answer (not a refusal: the node may have run the command)"
-        elif status in mcc3.FORWARD_HELP:
-            line = f"not sent, the relay says {said['status']}: {mcc3.FORWARD_HELP[status]}"
+        elif status in mcc3.FORWARD_HELP or status in mcc3.GUEST_HELP:
+            line = f"not sent, the relay says {said['status']}: {mcc3.FORWARD_HELP.get(status) or mcc3.GUEST_HELP[status]}"
         else:
             line = f"the relay says {said['status']}, which this version does not know"
     store.record(node, command, topic, result, road=RELAY_ROAD, relay=said,
                  note="" if result is not None else said["status"] or "the relay did not answer")
+    # Two relays in a row with no answer for this node move the relay to the end of its list.
+    kept = dict((store.device(node) or device).get("relay_misses") or {})
+    if said["status"] == "answered":
+        kept.pop(relay["node"], None)
+    elif said["status"] in (None, "no-answer"):
+        kept[relay["node"]] = int(kept.get(relay["node"]) or 0) + 1
+    if kept != ((store.device(node) or device).get("relay_misses") or {}):
+        store.update_device(node, relay_misses=kept)
     if result is not None and result.ok and commands.is_read(command):
         store.remember_read(node, command, result.reply or "OK", result.verified)
     heard = "" if said["snr"] is None else f", answer heard at {said['snr']:g} dB"
@@ -962,29 +998,50 @@ def _alive_record(fields, state, at):
     return rec
 
 
-def discover_alive(store, wait_secs=None, progress=None, add=False, client_factory=None):
+def discover_alive(store, wait_secs=None, progress=None, add=False, client_factory=None, observer_name=None):
     """Your nodes, wherever they are, from the retained alive messages: every `mcc/alive/<KEY>`
     is tried with your command key (the shared secret per node cached beside the key), and
     those that open are yours. A device you have whose alive is empty is offline; one whose
     alive no longer opens is no longer yours (rekeyed). Reads only; nothing is published.
 
-    On the same connection, what your Observer nodes heard (`mcc/heard/<KEY>/<slot>`, lou-21):
-    a node without Wi-Fi that announced itself over the mesh is listed with the state `heard`,
-    and added as a mesh-only device with `add` (`_heard`, below).
+    On the same connection, the shared node store (`mcc/node/<KEY>`, lou-21): a node without
+    Wi-Fi that announced itself over the mesh, heard by any lou-21 Observer, is listed with the
+    state `heard`, and added as a mesh-only device with `add` (`_announced`, below). Each entry
+    is tried once per (boot, sequence) (`store.tried`); a node you forgot after the store found
+    it is not added again (`store.hidden`). `observer_name(key)` names a stranger's Observer
+    (Beacon); None leaves it unnamed.
 
     Returns `[{node, key, name, version, state, known_as, added, alive}]`, sorted by name; a
-    heard node's entry has `heard` in place of an alive."""
+    heard node's entry has `heard` and `catchers` in place of an alive."""
     config = store.config()
     seed = store.seed()
     cache = store.ecdh_cache()
     before = len(cache)
-    slots = {}
+    entries = {}
     seen = plane.scan(config, seed, cache, wait_secs=wait_secs or min(10, config.get("wait_secs", 20)),
-                      progress=progress, client_factory=client_factory, store=store, heard=slots)
-    read_at = time.time()
-    announced = plane.newest_heard(plane.open_heard(seed, cache, by, payload)       # of our own nodes only
-                                   for (by, _slot), payload in sorted(slots.items())
-                                   if seen.get(by, ("",))[0] == "ours")
+                      progress=progress, client_factory=client_factory, store=store, nodes=entries)
+    tried = store.tried()
+    was = dict(tried)
+    announced = {}
+    for key, payload in sorted(entries.items()):
+        if seen.get(key, ("",))[0] == "ours":
+            continue                    # a node with an alive message of its own needs no announce
+        try:
+            entry = mcc3.open_node_entry(payload)
+        except mcc3.Refused:
+            continue
+        stamp = f"{entry['boot']}.{entry['sequence']}.{entry['report']}"
+        if tried.get(key) == stamp:
+            continue                    # tried before, not yours
+        if tried.get(key) == stamp + "!":
+            announced[key] = {"again": True, "catchers": entry["catchers"]}     # yours: the catchers may have moved
+            continue
+        opened = plane.open_node(seed, cache, key, payload)
+        tried[key] = stamp + ("!" if opened else "")
+        if opened:
+            announced[key] = opened
+    if tried != was:
+        store.save_tried(tried)
     if len(cache) != before:
         store.save_ecdh_cache(cache)
     by_key = {(d.get("key") or "").upper(): d for d in store.devices() if d.get("key")}
@@ -1013,7 +1070,7 @@ def discover_alive(store, wait_secs=None, progress=None, add=False, client_facto
             adopt(store, {"node": key, "key": key, "region": "", "alive": rec}, entry["name"])
             entry["added"] = True
         found.append(entry)
-    found += _heard(store, announced, {k: v[1] for k, v in seen.items() if v[0] == "ours"}, read_at, add)
+    found += _announced(store, seed, cache, entries, announced, add, observer_name)
     return sorted(found, key=lambda e: (e["name"] or e["node"]).lower())
 
 
@@ -1021,35 +1078,105 @@ def _iso(at):
     return datetime.datetime.fromtimestamp(at).replace(microsecond=0).isoformat(sep=" ")
 
 
-def _heard_record(entry, by_name, read_at):
-    """What is kept on a device from an announce one of our Observer nodes caught: the battery
-    with the time it was heard (the catching node's clock; `at_read` marks the time this tool
-    read it instead, when that clock was unset), who heard it, the SNR in dB and the hops."""
-    rec = {"at": _iso(entry["heard_at"] or read_at), "at_read": not entry["heard_at"],
-           "by": entry["by"][:envelope.NODE_HEX_LEN], "by_name": by_name, "snr": entry["snr"] / 4,
-           "battery_mv": entry["battery_mv"] or None}             # 0: the board cannot read it
-    rec.update({k: entry[k] for k in ("hops", "boot", "sequence", "uptime", "clock", "last_counter", "flags",
-                                      "version", "name")})
-    if entry["advert_heard_at"]:                                  # zero until adverts are counted: none
-        rec.update(advert_at=_iso(entry["advert_heard_at"]), advert_snr=entry["advert_snr"] / 4,
-                   advert_hops=entry["advert_hops"])
+# A node without Wi-Fi that announces itself does so every 12 or 23 hours: with no newer
+# announce for this long it is silent.
+ANNOUNCE_SILENT_HOURS = 48
+
+
+def catcher_rows(catchers, devices, names):
+    """What a device keeps of the Observers that caught its announces (the store's two lists):
+    one row each, named where known, the SNR in dB, the time by the command server's clock."""
+    mine = {(d.get("key") or "").upper(): d for d in devices if d.get("key")}
+    return [{"key": c["key"], "node": c["key"][:envelope.NODE_HEX_LEN],
+             "name": (mine[c["key"]].get("name") or mine[c["key"]]["node"]) if c["key"] in mine else names.get(c["key"], ""),
+             "at": _iso(c["arrival"]), "snr": c["snr"] / 4, "hops": c["hops"], "via": c["via"], "list": c["list"]}
+            for c in catchers]
+
+
+def catcher_hops(c):
+    """The hops an announce travelled to its catcher: a zero-hop state packet travelled none."""
+    return 0 if c["via"] == mcc3.VIA_ZERO_HOP else c["hops"]
+
+
+RELAY_DEMOTE_AFTER = 2          # relays in a row with no answer that move one to the end of the list
+
+
+def rank_catchers(device, devices):
+    """The Observers that caught `device`'s announces, one row each (its best report): your own
+    first, then the fewest hops, then the best SNR; those demoted for this node (two relays in a
+    row with no answer) last. Each row gains `own` and `demoted`."""
+    mine = {(d.get("key") or "").upper() for d in devices if d.get("key")}
+    misses = device.get("relay_misses") or {}
+    best = {}
+    def order(c):
+        return catcher_hops(c), -c["snr"], c["list"], -(_when(c.get("at")) or 0)
+    for c in device.get("catchers") or []:
+        if c["key"] == (device.get("key") or "").upper():
+            continue
+        if c["key"] not in best or order(c) < order(best[c["key"]]):
+            best[c["key"]] = c
+    rows = [dict(c, own=c["key"] in mine, demoted=int(misses.get(c["node"]) or 0) >= RELAY_DEMOTE_AFTER)
+            for c in best.values()]
+    return sorted(rows, key=lambda c: (c["demoted"], not c["own"]) + order(c))
+
+
+def _heard_record(fields, rows, devices):
+    """What a device keeps of its newest announce: what it said, who heard it (the best catcher
+    of the newest announce) and when, by the command server's clock."""
+    ranked = rank_catchers({"catchers": [r for r in rows if r["list"] == 0]}, devices) or rank_catchers(
+        {"catchers": rows}, devices)
+    by = ranked[0] if ranked else {}
+    rec = {"at": by.get("at"), "at_read": False, "by": by.get("node", ""), "by_key": by.get("key", ""),
+           "by_name": by.get("name", ""), "snr": by.get("snr"), "hops": by.get("hops"), "via": by.get("via"),
+           "battery_mv": fields.get("battery_mv") or None}          # 0: the board cannot read it
+    rec.update({k: fields[k] for k in ("boot", "sequence", "uptime", "clock", "last_counter", "flags", "version", "name",
+                                       "report") if k in fields})
     return rec
 
 
-def _heard(store, announced, ours, read_at, add):
-    """The discovery entries for the announced nodes, `{KEY: opened entry}`, newest per node.
-    A device you have keeps the newest (boot, sequence) as its `heard`; one you do not have
-    is added with `add`, as a mesh-only device under the name it announced. A name you gave
-    is never replaced. `ours` maps our Observer nodes' keys to their alive fields."""
+def _announced(store, seed, cache, entries, announced, add, observer_name):
+    """The discovery entries for the nodes found in the shared store, `{KEY: opened entry}`. A
+    device you have keeps the newest (boot, sequence) as its `heard` and the Observers that
+    caught it as its `catchers`; one you do not have is added with `add`, as a mesh-only device
+    under the name it announced, unless you forgot it before. A name you gave is never replaced."""
     found = []
+    names = {}
+    hidden = store.hidden()
     for key, entry in announced.items():
-        if key in ours:
-            continue                    # a node with an alive message of its own needs no announce
         node = key[:envelope.NODE_HEX_LEN]
-        d = next((x for x in store.devices() if (x.get("key") or "").upper() == key
+        devices = store.devices()
+        d = next((x for x in devices if (x.get("key") or "").upper() == key
                   or (x["node"] == node and not x.get("key"))), None)
-        by = store.device(entry["by"])
-        rec = _heard_record(entry, (by or {}).get("name") or (ours[entry["by"]] or {}).get("name") or "", read_at)
+        if d is None and any(x["node"] == node for x in devices):
+            continue                    # the same first 8 characters, another key
+        if entry.get("again") and d is None:        # yours, not in the list: open it again to list it
+            entry = plane.open_node(seed, cache, key, entries[key])
+            if entry is None:
+                continue
+        mine = {(x.get("key") or "").upper() for x in devices if x.get("key")}
+        for c in entry["catchers"]:                 # a stranger's Observer: its name from Beacon, once a discover
+            if c["key"] in names or c["key"] in mine:
+                continue
+            known = next((x for x in (d or {}).get("catchers") or [] if x["key"] == c["key"] and x.get("name")), None)
+            names[c["key"]] = known["name"] if known else ""
+            if not known and observer_name:
+                try:
+                    names[c["key"]] = (observer_name(c["key"]) or "")[:40]
+                except Exception:       # noqa: BLE001 -- a name is a nicety; Beacon may be away
+                    pass
+        rows = catcher_rows(entry["catchers"], devices, names)
+        if entry.get("again"):
+            if rows != (d.get("catchers") or []):
+                heard = dict(d.get("heard") or {})
+                who = _heard_record({}, rows, devices)
+                heard.update({k: who[k] for k in ("at", "by", "by_key", "by_name", "snr", "hops", "via")})
+                d = store.update_device(d["node"], catchers=rows, heard=heard)
+            h = d.get("heard") or {}
+            found.append({"node": node, "key": key, "name": h.get("name", ""), "version": h.get("version", ""),
+                          "state": "heard", "known_as": d.get("name") or d["node"], "added": False, "alive": None,
+                          "heard": h, "catchers": d.get("catchers")})
+            continue
+        rec = _heard_record(entry, rows, devices)
         added = False
         if d is not None:
             if plane.newer(entry, d.get("heard")):
@@ -1058,14 +1185,15 @@ def _heard(store, announced, ours, read_at, add):
                     more["mesh_only"] = True        # it announced: an image without Wi-Fi
                 if not d.get("ver") and entry["version"]:
                     more["ver"] = entry["version"]  # what it announced, until a `ver` says more
-                d = store.update_device(d["node"], heard=rec, **more)
+                d = store.update_device(d["node"], heard=rec, catchers=rows, **more)
             else:
-                rec = d["heard"]        # stale, or the same announce caught by another node
-        elif add and store.device(node) is None:
+                rec = d["heard"]        # stale: the store holds an older one than we have
+        elif add and node not in hidden and store.device(node) is None:
             adopt(store, {"node": key, "key": key, "region": ""}, entry["name"])
-            store.update_device(node, heard=rec, mesh_only=True, **({"ver": entry["version"]} if entry["version"] else {}))
+            store.update_device(node, heard=rec, catchers=rows, mesh_only=True,
+                                **({"ver": entry["version"]} if entry["version"] else {}))
             added = True
         found.append({"node": node, "key": key, "name": entry["name"], "version": entry["version"],
                       "state": "heard", "known_as": None if d is None else (d.get("name") or d["node"]),
-                      "added": added, "alive": None, "heard": rec})
+                      "added": added, "alive": None, "heard": rec, "catchers": rows})
     return found

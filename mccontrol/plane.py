@@ -179,10 +179,15 @@ FORWARD_WAIT_SECS = 135.0
 
 
 def forward_payload(relay_keys, relay_key_hex, counter, target_key_hex, route, body, path_len=0, path=b"",
-                    ttl_secs=FORWARD_TTL_SECS, now=None):
-    """The sealed forward for `mcc/cmd/<RELAY KEY>`, its result named to this session's RID."""
+                    ttl_secs=FORWARD_TTL_SECS, now=None, guest_key_hex=None):
+    """The sealed forward for `mcc/cmd/<RELAY KEY>`, its result named to this session's RID.
+    With `guest_key_hex` (our command public key) the relay is a stranger's (lou-21): a guest
+    forward, kind G, and `relay_keys` are `mcc3.guest_keys`."""
     expiry = int(time.time() if now is None else now) + min(int(ttl_secs), FORWARD_TTL_SECS)
     try:
+        if guest_key_hex:
+            return mcc3.seal_guest_forward(relay_keys, guest_key_hex, relay_key_hex, counter, expiry, session()["rid"],
+                                           target_key_hex, route, body, path_len=path_len, path=path)
         return mcc3.seal_forward(relay_keys, relay_key_hex, counter, expiry, session()["rid"], target_key_hex,
                                  route, body, path_len=path_len, path=path)
     except mcc3.Mcc3Error as exc:
@@ -251,67 +256,61 @@ def newer(fields, than):
     return (fields["boot"], fields["sequence"]) > (than.get("boot", -1), than.get("sequence", -1))
 
 
-def open_heard(seed_hex, cache, catcher_key, payload):
-    """One heard entry of our Observer node `catcher_key`, opened twice: the entry with K_heard,
-    then the announce inside with K_malive of the node it names. `{node_key, boot, sequence,
-    uptime, clock, last_counter, flags, battery_mv, version, name, heard_at, snr, hops,
-    advert_heard_at, advert_snr, advert_hops, by}` (`by` the catching node's key), or None:
-    an entry or an announce that does not open is dropped, so a forged announce never shows
-    as a node. `cache` as `open_alive`'s."""
-    def secret(key):
-        if cache.get(key) is None:
-            cache[key] = mcc3.shared_secret(seed_hex, key).hex()
-        return bytes.fromhex(cache[key])
-
+def open_node(seed_hex, cache, topic_key, payload):
+    """One entry of the shared node store (`mcc/node/<KEY>`, lou-21), checked in the note's
+    order: the owner tag with our command key (one SHA-256; nearly every entry stops here), the
+    node's signature, then the seal with K_malive. `{node_key, boot, sequence, uptime, clock,
+    last_counter, flags, battery_mv, version, name, report, catchers}`, or None: another owner's
+    entry, a forged or altered one, or one under another key's topic never shows as a node.
+    `cache` as `open_alive`'s; it gains S only for an entry that is ours."""
     try:
-        entry = mcc3.open_heard(mcc3.heard_key(secret(catcher_key), catcher_key), payload)
-        node = entry.pop("node_key")
-        fields = mcc3.open_announce(mcc3.malive_key(secret(node), node), envelope.public_key_hex(seed_hex),
-                                    entry.pop("announce"))
-    except (mcc3.Refused, mcc3.Mcc3Error, ValueError):
+        entry = mcc3.open_node_entry(payload)
+    except mcc3.Refused:
         return None
-    return dict(fields, by=catcher_key, **entry)
+    if entry["node_key"] != topic_key:
+        return None
+    mine = envelope.public_key_hex(seed_hex)
+    if not mcc3.announce_is_for(mine, entry["announce"]) or not mcc3.announce_signature_ok(entry["announce"]):
+        return None
+    node = entry["node_key"]
+    if cache.get(node) is None:
+        cache[node] = mcc3.shared_secret(seed_hex, node).hex()
+    try:
+        fields = mcc3.open_announce(mcc3.malive_key(bytes.fromhex(cache[node]), node), mine, entry["announce"])
+    except (mcc3.Refused, mcc3.Mcc3Error):
+        return None
+    return dict(fields, report=entry["report"], catchers=entry["catchers"])
 
 
-def newest_heard(entries):
-    """`{announced node KEY: entry}` from opened heard entries: several of our nodes may have
-    caught the same node, and the newest (boot, sequence) is kept."""
-    out = {}
-    for e in entries:
-        if e and newer(e, out.get(e["node_key"])):
-            out[e["node_key"]] = e
-    return out
-
-
-def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None, store=None, heard=None):
+def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None, store=None, nodes=None):
     """Subscribe `mcc/alive/+` and read the retained snapshot (and any live update) for
     `wait_secs`. Returns `{KEY: (state, fields, received_at)}`, the newest per node, states
     as `open_alive`. Reads only: nothing is published.
 
-    With `heard` (a dict), `mcc/heard/+/+` is read on the same connection and the dict gains
-    `{(catching node KEY, slot): payload}`, unopened: the caller opens those of its own nodes.
-    A command server that does not know the topic refuses that subscription; nothing is
-    heard then, and nothing else changes."""
+    With `nodes` (a dict), the shared node store `mcc/node/+` (lou-21) is read on the same
+    connection and the dict gains `{node KEY: payload}`, unopened: the caller tries them
+    (`open_node`). A command server that does not keep the store refuses that subscription;
+    nothing is found there then, and nothing else changes."""
     seen = {}
     lock = threading.Lock()
     acks = []                   # (mid, codes) of each subscription the broker answered
     asked = {}
 
     def refused():
-        """The refusals that count, once both subscriptions are sent: not the heard filter's."""
+        """The refusals that count, once both subscriptions are sent: not the store filter's."""
         if "done" not in asked:
             return []
-        return [str(c) for mid, codes in list(acks) if mid is None or mid != asked.get("heard") for c in codes
+        return [str(c) for mid, codes in list(acks) if mid is None or mid != asked.get("nodes") for c in codes
                 if (c.is_failure if hasattr(c, "is_failure") else int(c) >= 128)]
 
     def on_message(_c, _u, msg):
-        slot = mcc3.heard_from_topic(msg.topic) if heard is not None else None
-        if slot:
+        entry = mcc3.node_entry_key(msg.topic) if nodes is not None else None
+        if entry:
             with lock:
                 if msg.payload:
-                    heard[slot] = msg.payload
+                    nodes[entry] = msg.payload
                 else:
-                    heard.pop(slot, None)       # the slot was emptied
+                    nodes.pop(entry, None)      # the entry was emptied
             return
         key = mcc3.node_from_topic(msg.topic)
         if not key or not msg.topic.startswith(f"{mcc3.TOPIC_ROOT}alive/"):
@@ -330,10 +329,10 @@ def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=
         client.on_message = on_message
         client.on_subscribe = on_subscribe
         client.subscribe(mcc3.ALIVE_FILTER, qos=1)
-        if heard is not None:
-            sent = client.subscribe(mcc3.HEARD_FILTER, qos=1)
+        if nodes is not None:
+            sent = client.subscribe(mcc3.NODE_FILTER, qos=1)
             if isinstance(sent, tuple):
-                asked["heard"] = sent[1]
+                asked["nodes"] = sent[1]
         asked["done"] = True
         transport._wait(wait_secs, lambda: bool(refused()),
                         lambda: [k for k, v in list(seen.items()) if v[0] == "ours"], progress)

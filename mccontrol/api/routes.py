@@ -60,6 +60,7 @@ def view(ctx, d, columns=None, width=100):
     out["stale"] = directory.stale(d)
     out["battery"] = directory.battery_text(d) or None       # the newest reading, its age and its source
     out["heard_line"] = directory.heard_text(d) or None      # a node without Wi-Fi: who caught its announce
+    out["relays_line"] = directory.relays_text(d, ctx.store.devices()) or None   # who can relay to it (lou-21)
     out["cells"] = directory.cells(d)
     out["row"] = directory.row(d, width, columns=columns).rstrip()
     return out

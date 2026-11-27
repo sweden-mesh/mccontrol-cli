@@ -477,6 +477,14 @@ def seal_forward(keys, relay_key_hex, counter, expiry, rid, target_key_hex, rout
     request from its sub-type byte on: the 132 bytes of a 0xC2, or a 0xC1) to the target.
     `keys` are the RELAY's; the AEAD under K_fwd is the whole proof, the request inside carries
     the owner's signature for the target. Refuses what a relay would answer `bad-body`."""
+    target = _forward_checks(relay_key_hex, target_key_hex, rid, route, path_len, path, body)
+    nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
+    return b64(_forward_raw(keys, nonce, 0, counter, expiry, rid, target, route, path_len, path,
+                            len(body), body))
+
+
+def _forward_checks(relay_key_hex, target_key_hex, rid, route, path_len, path, body):
+    """What a relay would answer `bad-body`, refused before sealing; the target's key as bytes."""
     relay, target = _key_hex(relay_key_hex), _key_hex(target_key_hex)
     if len(rid) != RID_LEN:
         raise Mcc3Error(f"a reply id is {RID_LEN} bytes")
@@ -488,15 +496,17 @@ def seal_forward(keys, relay_key_hex, counter, expiry, rid, target_key_hex, rout
         raise Mcc3Error("a relay forwards a 0xC2 request of 132 bytes or a 0xC1 request of 74..132 bytes")
     if target == relay:
         raise Mcc3Error("a relay does not forward to itself")
-    nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
-    return b64(_forward_raw(keys, nonce, 0, counter, expiry, rid, bytes.fromhex(target), route, path_len, path,
-                            len(body), body))
+    return bytes.fromhex(target)
+
+
+def _forward_plain(counter, expiry, rid, target, route, path_len, path, body_len, body):
+    return (_u32(counter) + _u32(expiry) + rid + target + bytes([route, path_len])
+            + path + bytes(FORWARD_PATH - len(path)) + bytes([body_len]) + body + bytes(FORWARD_BODY - len(body)))
 
 
 def _forward_raw(keys, nonce, flags, counter, expiry, rid, target, route, path_len, path, body_len, body):
     header = bytes([KIND_FORWARD, flags]) + nonce
-    plain = (_u32(counter) + _u32(expiry) + rid + target + bytes([route, path_len])
-             + path + bytes(FORWARD_PATH - len(path)) + bytes([body_len]) + body + bytes(FORWARD_BODY - len(body)))
+    plain = _forward_plain(counter, expiry, rid, target, route, path_len, path, body_len, body)
     sealed, tag = _aead(keys["fwd"], nonce, header).encrypt_and_digest(plain)
     return header + sealed + tag
 
@@ -517,6 +527,10 @@ def open_forward(relay_seed_hex, command_key_hex, payload, keys=None):
         p = _aead(keys["fwd"], header[2:], header).decrypt_and_verify(sealed, tag)
     except ValueError:
         raise Refused("sig-invalid") from None
+    return _forward_fields(relay_seed_hex, p)
+
+
+def _forward_fields(relay_seed_hex, p):
     counter, expiry = struct.unpack_from("<II", p, 0)
     rid, target, route, path_len, body_len = p[8:24], p[24:56], p[56], p[57], p[115]
     used = path_bytes(path_len, FORWARD_PATH)
@@ -570,8 +584,7 @@ def open_forward_result(keys, payload):
     n = p[76]
     if used is None or n > FORWARD_MAX_RESPONSE:
         raise Refused("bad-fields")
-    return {"counter": counter, "status": status,
-            "name": FORWARD_STATUSES[status] if status < len(FORWARD_STATUSES) else None, "clock": clock,
+    return {"counter": counter, "status": status, "name": status_name(status), "clock": clock,
             "sent": sent, "snr": None if snr == -128 else snr,
             "path_len": None if path_len == PATH_NONE else path_len, "path": p[12:12 + used],
             "response": p[77:77 + n]}
@@ -703,12 +716,12 @@ def seal_announce(key, command_key_hex, node_key_hex, fields):
 
 
 def open_announce(key, command_key_hex, payload):
-    """The fields of an announce (and `node_key`), or Refused: `not-announce` for another size
-    or kind, `other-owner` when its owner tag is not this command key's, `does-not-open` when
+    """The fields of an announce's first 101 bytes (and `node_key`), or Refused: `not-announce`
+    for another size (101, or 165 signed: the signature is `open_signed_announce`'s) or kind, `other-owner` when its owner tag is not this command key's, `does-not-open` when
     the seal does not verify under `key` (K_malive of the node it names). The tag is the
     Poly1305 tag's first 8 bytes: it is made again here and compared."""
     raw = bytes(payload)
-    if len(raw) != ANNOUNCE_SIZE or raw[33] != KIND_ANNOUNCE:
+    if len(raw) not in (ANNOUNCE_SIZE, ANNOUNCE_SIGNED_SIZE) or raw[33] != KIND_ANNOUNCE:
         raise Refused("not-announce")
     node = raw[1:33].hex().upper()
     boot, sequence = struct.unpack_from("<II", raw, 38)
@@ -717,7 +730,7 @@ def open_announce(key, command_key_hex, payload):
     nonce, aad, body = _announce_nonce(boot, sequence), raw[1:46], raw[46:46 + ANNOUNCE_SEALED]
     p = _aead(key, nonce, aad).decrypt(body)
     _again, tag = _aead(key, nonce, aad).encrypt_and_digest(p)
-    if not hmac.compare_digest(tag[:ANNOUNCE_TAG], raw[46 + ANNOUNCE_SEALED:]):
+    if not hmac.compare_digest(tag[:ANNOUNCE_TAG], raw[46 + ANNOUNCE_SEALED:ANNOUNCE_SIZE]):
         raise Refused("does-not-open")
     out = {"node_key": node, "boot": boot, "sequence": sequence}
     out.update(zip(ANNOUNCE_FIELDS[2:7], struct.unpack_from("<IIIBH", p, 0)))
@@ -762,3 +775,193 @@ def open_heard(key, payload):
     out = {"node_key": p[:32].hex().upper(), "announce": p[:1] + p[:32 + ANNOUNCE_KEPT]}
     out.update(zip(HEARD_FIELDS, struct.unpack_from("<IbBIbB", p, 32 + ANNOUNCE_KEPT)))
     return out
+
+
+# -- the signed announce and the shared node store (lou-21, L21-G1) --------------------------
+#
+# From lou-21 the announce is signed by the node's identity key, and any lou-21 Observer that
+# hears it hands it to the command server, which keeps one entry per node, retained on
+# `mcc/node/<KEY>`: the newest signed announce and the Observers that caught it
+# (planning/firmware/otm10g-shared-store-design-20261127.md, sections 1 and 6).
+#
+#     signature  Ed25519 by the node over "mcc3/ann|" + bytes 1..100, at bytes 101..164
+#     entry      'N' ‖ announce bytes 1..164 ‖ count ‖ count x (Observer key 32 ‖ arrival u32 ‖
+#                SNR i8 ‖ hops ‖ via ‖ list), 40 bytes a catcher (the note's sum says 39)
+#
+# TODO(L21-G2): mccontrol-spec does not carry these yet; the constants stay here (and out of
+# webexport) until it does.
+
+ANN_LABEL = b"mcc3/ann|"
+ANNOUNCE_SIGNED_SIZE = ANNOUNCE_SIZE + SIG_LEN                                                        # 165
+KIND_NODE = 0x4E                                                                                      # "N"
+NODE_CATCHER_SIZE = 40
+NODE_HEAD = 1 + ANNOUNCE_SIGNED_SIZE - 1 + 1
+NODE_FILTER = f"{TOPIC_ROOT}node/+"
+VIA_ZERO_HOP, VIA_DIRECT, VIA_FLOOD = 0, 1, 2      # how the catcher heard it: state packet, along a path, flood
+
+
+def node_topic(node_key_hex):
+    return f"{TOPIC_ROOT}node/{_key_hex(node_key_hex)}"
+
+
+def node_entry_key(topic):
+    """The node KEY of `mcc/node/<KEY>`, else None."""
+    parts = (topic or "").split("/")
+    if len(parts) != 3 or parts[0] + "/" != TOPIC_ROOT or parts[1] != "node" or parts[2] != parts[2].upper():
+        return None
+    return envelope.node_key(parts[2]) if len(parts[2]) == 64 else None
+
+
+def _announce_signed(raw):
+    return ANN_LABEL + bytes(raw[1:ANNOUNCE_SIZE])
+
+
+def sign_announce(node_seed_hex, body):
+    """The 165 bytes a lou-21 node floods: the 101 of `seal_announce` and its signature (for
+    vectors and tests; the node does this)."""
+    body = bytes(body)
+    if len(body) != ANNOUNCE_SIZE:
+        raise Mcc3Error(f"an unsigned announce is {ANNOUNCE_SIZE} bytes")
+    if body[1:33].hex().upper() != envelope.public_key_hex(node_seed_hex).upper():
+        raise Mcc3Error("an announce is signed by the node it names")
+    return body + _sign(node_seed_hex, _announce_signed(body))
+
+
+def is_announce(raw):
+    return len(raw) == ANNOUNCE_SIGNED_SIZE and raw[33] == KIND_ANNOUNCE
+
+
+def announce_is_for(command_key_hex, raw):
+    """Is the announce's owner tag this command key's? One SHA-256, no X25519."""
+    raw = bytes(raw)
+    if not is_announce(raw):
+        return False
+    boot, sequence = struct.unpack_from("<II", raw, 38)
+    return hmac.compare_digest(raw[34:38], owner_tag(command_key_hex, raw[1:33].hex(), boot, sequence))
+
+
+def announce_signature_ok(raw):
+    raw = bytes(raw)
+    return is_announce(raw) and _verify(raw[1:33].hex(), _announce_signed(raw), raw[ANNOUNCE_SIZE:])
+
+
+def open_signed_announce(key, command_key_hex, payload):
+    """A signed announce in the note's order: size and kind (`not-announce`), the owner tag
+    (`other-owner`), the node's signature (`bad-signature`, the firmware's word), then the seal (`does-not-open`)."""
+    raw = bytes(payload)
+    if not is_announce(raw):
+        raise Refused("not-announce")
+    if not announce_is_for(command_key_hex, raw):
+        raise Refused("other-owner")
+    if not announce_signature_ok(raw):
+        raise Refused("bad-signature")
+    return open_announce(key, command_key_hex, raw)
+
+
+def seal_node_entry(announce, catchers=()):
+    """The retained `mcc/node/<KEY>` as the command server publishes it (for tests). `catchers`:
+    `[{key, arrival, snr (quarter dB), hops, via, list (0 current, 1 previous)}]`."""
+    announce = bytes(announce)
+    if not is_announce(announce):
+        raise Mcc3Error(f"a node entry holds a signed announce of {ANNOUNCE_SIGNED_SIZE} bytes")
+    out = bytes([KIND_NODE]) + announce[1:] + bytes([len(catchers)])
+    for c in catchers:
+        out += bytes.fromhex(_key_hex(c["key"])) + struct.pack("<IbBBB", c["arrival"], c["snr"], c["hops"], c["via"],
+                                                               c["list"])
+    return b64(out)
+
+
+def open_node_entry(payload):
+    """What a node entry says, unchecked (the caller tests the tag, the signature, the seal):
+    `{node_key, boot, sequence, announce (165 bytes, byte 0 rebuilt), report (the first 4 bytes
+    of the signature, hex), catchers}`, or Refused("bad-fields")."""
+    raw = unb64(payload)
+    if len(raw) < NODE_HEAD or raw[0] != KIND_NODE:
+        raise Refused("bad-fields")
+    count = raw[NODE_HEAD - 1]
+    if len(raw) != NODE_HEAD + count * NODE_CATCHER_SIZE:
+        raise Refused("bad-fields")
+    announce = raw[1:2] + raw[1:ANNOUNCE_SIGNED_SIZE]
+    if not is_announce(announce):
+        raise Refused("bad-fields")
+    catchers = []
+    for i in range(count):
+        at = NODE_HEAD + i * NODE_CATCHER_SIZE
+        arrival, snr, hops, via, lst = struct.unpack_from("<IbBBB", raw, at + 32)
+        catchers.append({"key": raw[at:at + 32].hex().upper(), "arrival": arrival, "snr": snr, "hops": hops,
+                         "via": via, "list": lst})
+    boot, sequence = struct.unpack_from("<II", announce, 38)
+    return {"node_key": announce[1:33].hex().upper(), "boot": boot, "sequence": sequence, "announce": announce,
+            "report": announce[ANNOUNCE_SIZE:ANNOUNCE_SIZE + 4].hex().upper(), "catchers": catchers}
+
+
+# -- a guest forward: relaying through a stranger's Observer (lou-21, section 5) -------------
+#
+#     K_gfwd  HKDF-SHA256(X25519(guest command key, relay identity), salt empty, "mcc3/gfwd/" + relay KEY)
+#     wire    'G' ‖ guest key (32) ‖ nonce (12) ‖ ChaCha20-Poly1305[K_gfwd](the body of a forward),
+#             AAD the 45 bytes before it; the result is a forward result sealed under K_gfwd.
+
+INFO_GFWD = "mcc3/gfwd/"
+KIND_GUEST_FORWARD = 0x47                                                                             # "G"
+GUEST_FORWARD_SIZE = 1 + 32 + NONCE_LEN + (FORWARD_SIZE - 2 - NONCE_LEN)                             # 309
+# lou-21's refusals of a guest forward. TODO(L21-G2): the numbers follow the order the design
+# note lists them in; the spec's results.json does not carry them yet.
+GUEST_STATUSES = {10: "guest-cap", 11: "guests-full", 12: "target-cap"}
+GUEST_HELP = {
+    10: "The relay belongs to someone else, and you have used the floods it gives one guest today. Nothing "
+        "was sent. Choose another relay, or try again after midnight UTC.",
+    11: "The relay belongs to someone else, and its share for guests is used up for today. Nothing was sent. "
+        "Choose another relay, or try again after midnight UTC.",
+    12: "This node has had all the floods from guests that the relay allows one node today. Nothing was sent. "
+        "Try again after midnight UTC, or send by a direct route.",
+}
+GUEST_HELP_SV = {
+    10: "Reläet tillhör någon annan, och du har använt de floods det ger en gäst i dag. Inget skickades. Välj "
+        "ett annat relä, eller försök igen efter midnatt UTC.",
+    11: "Reläet tillhör någon annan, och dess andel för gäster är slut för i dag. Inget skickades. Välj ett "
+        "annat relä, eller försök igen efter midnatt UTC.",
+    12: "Noden har fått alla floods från gäster som reläet tillåter en nod i dag. Inget skickades. Försök igen "
+        "efter midnatt UTC, eller skicka med en direkt väg.",
+}
+
+
+def status_name(status):
+    """A forward result's status in words, the guest refusals too; None for one not known."""
+    return FORWARD_STATUSES[status] if status < len(FORWARD_STATUSES) else GUEST_STATUSES.get(status)
+
+
+def guest_keys(secret, relay_key_hex):
+    """`{"fwd": K_gfwd}` from S (the guest's command key with the relay) and the relay's key: the
+    shape `open_forward_result` takes."""
+    return {"fwd": HKDF(secret, 32, b"", SHA256, context=(INFO_GFWD + _key_hex(relay_key_hex)).encode("ascii"))}
+
+
+def seal_guest_forward(keys, guest_key_hex, relay_key_hex, counter, expiry, rid, target_key_hex, route, body,
+                       path_len=0, path=b"", nonce=None):
+    """A guest forward for `mcc/cmd/<RELAY KEY>`: as `seal_forward`, with the guest's own command
+    public key in clear and `keys` from `guest_keys`."""
+    target = _forward_checks(relay_key_hex, target_key_hex, rid, route, path_len, path, body)
+    nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
+    header = bytes([KIND_GUEST_FORWARD]) + bytes.fromhex(_key_hex(guest_key_hex)) + nonce
+    plain = _forward_plain(counter, expiry, rid, target, route, path_len, path, len(body), body)
+    sealed, tag = _aead(keys["fwd"], nonce, header).encrypt_and_digest(plain)
+    return b64(header + sealed + tag)
+
+
+def open_guest_forward(relay_seed_hex, payload):
+    """The relay's side (for tests): `{guest, keys, counter, expiry, rid, target, route,
+    path_len, path, body}` or Refused, as `open_forward`."""
+    raw = unb64(payload)
+    if len(raw) != GUEST_FORWARD_SIZE or raw[0] != KIND_GUEST_FORWARD:
+        raise Refused("bad-fields")
+    guest = raw[1:33].hex().upper()
+    try:
+        keys = guest_keys(shared_secret(relay_seed_hex, guest), envelope.public_key_hex(relay_seed_hex))
+    except (ValueError, Mcc3Error):
+        raise Refused("sig-invalid") from None
+    header = raw[:45]
+    try:
+        p = _aead(keys["fwd"], header[33:], header).decrypt_and_verify(raw[45:-TAG_LEN], raw[-TAG_LEN:])
+    except ValueError:
+        raise Refused("sig-invalid") from None
+    return dict(_forward_fields(relay_seed_hex, p), guest=guest, keys=keys)

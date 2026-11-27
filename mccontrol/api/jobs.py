@@ -262,10 +262,16 @@ def _relay(ctx, body, via, devices):
     if any(not isinstance(body[k], str) for k in given):
         raise bad("relay, route and path are strings")
     if not body.get("relay"):
-        raise bad("via relay needs relay: a device of yours on MQTT")
-    relay = device_of(ctx, body["relay"])
+        raise bad("via relay needs relay: a device of yours on MQTT, an Observer that caught the node, or auto")
+    # a device of yours, or (lou-21) an Observer that caught the node's announce, or auto: the best of those
+    relay = actions.relay_for(ctx.store, devices[0], body["relay"]) if len(devices) == 1 else None
+    if relay is None:
+        if body["relay"].strip().lower() == "auto":
+            raise ApiError(400, "refused", "no Observer is known to have caught this node's announce; "
+                                           "name a relay of yours")
+        relay = device_of(ctx, body["relay"])
     route = body.get("route") or "direct"
-    why = (actions.relay_refusal(relay) if route in mcc3.ROUTES else
+    why = ((None if relay.get("guest") else actions.relay_refusal(relay)) if route in mcc3.ROUTES else
            f"the route is one of {', '.join(mcc3.ROUTES)}")
     if not why and relay["node"] == devices[0]["node"]:
         why = "a node cannot relay to itself; send it over MQTT"
@@ -425,7 +431,7 @@ def _start_discover_alive(ctx, body):
 
     def work(job):
         found = []
-        part = actions.discover_alive(store, wait_secs=wait, add=add,
+        part = actions.discover_alive(store, wait_secs=wait, add=add, observer_name=lambda k: beacon.node_name(store.config(), k),
                                       progress=ticker(job, lambda n: f"{n} of your nodes alive"))
         for e in part:
             said = f"{e['state']} {e['version']}".strip()
