@@ -328,6 +328,9 @@ class App:
                         f"Last sent  :  {(d.get('last_sent') or '-'):24}  Last result  :  {d.get('last_result') or '-'}",
                         f"Battery  . :  {(cells.get('batt') or '-').strip() or '-':24}  Seen . . . . :  "
                         f"{fleet.get('seen') or '-'}{'   (nothing heard for 7 days)' if d.get('stale') else ''}",
+                        *([f"Announced  :  {d['heard_line']}"
+                           + (f"; battery {d['battery']}" if "heard by" in (d.get("battery") or "") else "")]
+                          if d.get("heard_line") else []),
                         f"Notes  . . :  {d.get('notes') or ''}"]
             lst.set_rows([(fmt.history_row(line), "normal", line) for line in reversed(hist)])
             key, picks, _c = lst.run()

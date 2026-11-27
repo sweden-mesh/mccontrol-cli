@@ -251,15 +251,68 @@ def newer(fields, than):
     return (fields["boot"], fields["sequence"]) > (than.get("boot", -1), than.get("sequence", -1))
 
 
-def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None, store=None):
+def open_heard(seed_hex, cache, catcher_key, payload):
+    """One heard entry of our Observer node `catcher_key`, opened twice: the entry with K_heard,
+    then the announce inside with K_malive of the node it names. `{node_key, boot, sequence,
+    uptime, clock, last_counter, flags, battery_mv, version, name, heard_at, snr, hops,
+    advert_heard_at, advert_snr, advert_hops, by}` (`by` the catching node's key), or None:
+    an entry or an announce that does not open is dropped, so a forged announce never shows
+    as a node. `cache` as `open_alive`'s."""
+    def secret(key):
+        if cache.get(key) is None:
+            cache[key] = mcc3.shared_secret(seed_hex, key).hex()
+        return bytes.fromhex(cache[key])
+
+    try:
+        entry = mcc3.open_heard(mcc3.heard_key(secret(catcher_key), catcher_key), payload)
+        node = entry.pop("node_key")
+        fields = mcc3.open_announce(mcc3.malive_key(secret(node), node), envelope.public_key_hex(seed_hex),
+                                    entry.pop("announce"))
+    except (mcc3.Refused, mcc3.Mcc3Error, ValueError):
+        return None
+    return dict(fields, by=catcher_key, **entry)
+
+
+def newest_heard(entries):
+    """`{announced node KEY: entry}` from opened heard entries: several of our nodes may have
+    caught the same node, and the newest (boot, sequence) is kept."""
+    out = {}
+    for e in entries:
+        if e and newer(e, out.get(e["node_key"])):
+            out[e["node_key"]] = e
+    return out
+
+
+def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=None, store=None, heard=None):
     """Subscribe `mcc/alive/+` and read the retained snapshot (and any live update) for
     `wait_secs`. Returns `{KEY: (state, fields, received_at)}`, the newest per node, states
-    as `open_alive`. Reads only: nothing is published."""
+    as `open_alive`. Reads only: nothing is published.
+
+    With `heard` (a dict), `mcc/heard/+/+` is read on the same connection and the dict gains
+    `{(catching node KEY, slot): payload}`, unopened: the caller opens those of its own nodes.
+    A command server that does not know the topic refuses that subscription; nothing is
+    heard then, and nothing else changes."""
     seen = {}
     lock = threading.Lock()
-    refused = []
+    acks = []                   # (mid, codes) of each subscription the broker answered
+    asked = {}
+
+    def refused():
+        """The refusals that count, once both subscriptions are sent: not the heard filter's."""
+        if "done" not in asked:
+            return []
+        return [str(c) for mid, codes in list(acks) if mid is None or mid != asked.get("heard") for c in codes
+                if (c.is_failure if hasattr(c, "is_failure") else int(c) >= 128)]
 
     def on_message(_c, _u, msg):
+        slot = mcc3.heard_from_topic(msg.topic) if heard is not None else None
+        if slot:
+            with lock:
+                if msg.payload:
+                    heard[slot] = msg.payload
+                else:
+                    heard.pop(slot, None)       # the slot was emptied
+            return
         key = mcc3.node_from_topic(msg.topic)
         if not key or not msg.topic.startswith(f"{mcc3.TOPIC_ROOT}alive/"):
             return
@@ -270,17 +323,21 @@ def scan(config, seed_hex, cache, wait_secs=10.0, progress=None, client_factory=
                 return
             seen[key] = (state, fields, time.time())
 
-    def on_subscribe(_c, _u, _mid, codes, _props=None):
-        refused.extend(str(c) for c in codes
-                       if (c.is_failure if hasattr(c, "is_failure") else int(c) >= 128))
+    def on_subscribe(_c, _u, mid, codes, _props=None):
+        acks.append((mid, list(codes)))
 
     with _connection(config, client_factory, store) as client:
         client.on_message = on_message
         client.on_subscribe = on_subscribe
         client.subscribe(mcc3.ALIVE_FILTER, qos=1)
-        transport._wait(wait_secs, lambda: bool(refused),
+        if heard is not None:
+            sent = client.subscribe(mcc3.HEARD_FILTER, qos=1)
+            if isinstance(sent, tuple):
+                asked["heard"] = sent[1]
+        asked["done"] = True
+        transport._wait(wait_secs, lambda: bool(refused()),
                         lambda: [k for k, v in list(seen.items()) if v[0] == "ours"], progress)
-    if refused:
+    if refused():
         raise transport.BrokerError(f"{config['broker']} refused the subscription to {mcc3.ALIVE_FILTER}: "
-                                    f"{', '.join(refused)}")
+                                    f"{', '.join(refused())}")
     return seen

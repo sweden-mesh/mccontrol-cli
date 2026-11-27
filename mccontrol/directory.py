@@ -42,7 +42,57 @@ def last_heard(device):
     Beacon last saw. ISO text or None."""
     seen = (device.get("fleet") or {}).get("seen")
     heard = device.get("last_heard")
-    return max(x for x in (seen, heard) if x) if (seen or heard) else None
+    announced = (device.get("heard") or {}).get("at")      # an Observer node of yours caught its announce
+    times = [x for x in (seen, heard, announced) if x]
+    return max(times) if times else None
+
+
+def _when(text):
+    try:
+        return datetime.datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def battery(device):
+    """The newest battery reading of a device, or None: `{mv, at, source, by}`. `source` is
+    `beacon` (the node's own status, a node on Wi-Fi) or `heard` (the announce of a node without
+    Wi-Fi, caught by `by`, one of your Observer nodes). With both, the newer."""
+    fleet, heard = device.get("fleet") or {}, device.get("heard") or {}
+    readings = []
+    if fleet.get("battery_mv"):
+        readings.append({"mv": fleet["battery_mv"], "at": fleet.get("seen"), "source": "beacon", "by": None})
+    if heard.get("battery_mv"):
+        readings.append({"mv": heard["battery_mv"], "at": heard.get("at"), "source": "heard",
+                         "by": heard.get("by_name") or heard.get("by")})
+    return max(readings, key=lambda r: _when(r["at"]) or datetime.datetime.min) if readings else None
+
+
+def ago(when, now=None):
+    age = relative(when, now)
+    return age if age in ("-", "?", "now") else f"{age} ago"
+
+
+def battery_text(device, now=None):
+    """`3.71 V, 9 h ago, heard by Vindskydd`: the newest reading, its age and where it came
+    from. Empty when there is none."""
+    b = battery(device)
+    if not b:
+        return ""
+    return f"{b['mv'] / 1000:.2f} V, {ago(b['at'], now)}, " + (f"heard by {b['by']}" if b["source"] == "heard"
+                                                               else "from Beacon")
+
+
+def heard_text(device, now=None):
+    """`heard by Vindskydd 9 h ago, -5.5 dB, 2 hops` for a node without Wi-Fi that announced
+    itself, else empty. The time is the catching node's; when its clock was unset, the time
+    the announce was read here, and said so."""
+    h = device.get("heard") or {}
+    if not h:
+        return ""
+    hops = "direct" if not h.get("hops") else f"{h['hops']} hop{'s' if h['hops'] != 1 else ''}"
+    return (f"heard by {h.get('by_name') or h.get('by')} {ago(h.get('at'), now)}"
+            f"{' (read then)' if h.get('at_read') else ''}, {h.get('snr', 0):g} dB, {hops}")
 
 
 def stale(device, now=None, days=STALE_DAYS):
@@ -73,7 +123,9 @@ def row(device, width, now=None, columns=None):
     A name ending in ` ?` is a device something was sent to and nothing heard from for
     seven days, over the control plane or by Beacon: one to look at, not a verdict.
     `batt` and `seen` are what Beacon last said (`device["fleet"]`, filled by a refresh):
-    battery in volts and the age of the node's last status. Blank until asked for.
+    battery in volts and the age of the node's last status. Blank until asked for. A node
+    without Wi-Fi that announced itself (`device["heard"]`) shows what its announce said, the
+    newer of the two.
     """
     name = (device.get("name") or "(unnamed)")
     name = (f"{name[:16]} ?" if stale(device, now) else name[:18]).ljust(18)
@@ -112,11 +164,15 @@ def revision(ver):
 def cells(device, now=None):
     """The optional columns of a row, each padded to its width, by name."""
     fleet = device.get("fleet") or {}
+    newest = battery(device)
+    heard_at = (device.get("heard") or {}).get("at")
+    seen = max((x for x in (fleet.get("seen"), heard_at) if x), key=lambda x: _when(x) or datetime.datetime.min,
+               default=None)
     return {
         "reg": (device.get("region") or "?")[:4].ljust(4),
         "sent": relative(device.get("last_sent"), now)[:7].ljust(7),
-        "batt": (f"{fleet['battery_mv'] / 1000:.2f}" if fleet.get("battery_mv") else "")[:5].ljust(5),
-        "seen": (relative(fleet.get("seen"), now) if fleet else "")[:5].ljust(5),
+        "batt": (f"{newest['mv'] / 1000:.2f}" if newest else "")[:5].ljust(5),
+        "seen": (relative(seen, now) if fleet or heard_at else "")[:5].ljust(5),
         "ver": version_short(device.get("ver"))[:12].ljust(12),
         "result": (device.get("last_result") or ""),
     }

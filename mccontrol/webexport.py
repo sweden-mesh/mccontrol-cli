@@ -133,6 +133,10 @@ def data():
             "utf8_from": firmware.UTF8_FROM,
             "mesh_from": firmware.MESH_FROM,
             "relay_from": firmware.RELAY_FROM,
+            "announce_from": firmware.ANNOUNCE_FROM,
+            "announce_rule": "from announce_from a node without Wi-Fi announces itself over the mesh, with its "
+                             "battery, and an Observer node of the same owner publishes what it caught on "
+                             "mcc/heard/<KEY>/<slot>; an older node does neither and is added by its key",
             "relay_rule": "a node relays when it is not mesh only and its revision is relay_from or later, or "
                           "its alive message opened with your key; alive flags bit 4 (0x10) says relaying is on",
             "mesh_only_rule": "a version containing -lou- whose features have rc and which does not contain "
@@ -188,6 +192,8 @@ def data():
             "mcc3_forward": {"kind": mcc3.KIND_FORWARD, "result_kind": mcc3.KIND_FORWARD_RESULT,
                              "hkdf_info": mcc3.INFO_FWD, "flag_zero_hop": mcc3.FLAG_ZERO_HOP,
                              "alive_flag_relay": mcc3.ALIVE_FLAG_RELAY, **MCC3_FORWARD},
+            "mcc3_heard": MCC3_HEARD,
+            "_mcc3_heard_layout": MCC3_HEARD_LAYOUT,
         },
     }
 
@@ -564,6 +570,42 @@ MCC3_FORWARD = {
     "sent": {"nothing": mcc3.SENT_NOTHING, "direct": mcc3.SENT_DIRECT, "flood": mcc3.SENT_FLOOD},
     "snr_none": mcc3.SNR_NONE, "path_none": mcc3.PATH_NONE,
     "max_ttl_secs": mcc3.FORWARD_MAX_TTL,
+}
+
+
+# A node without Wi-Fi announces itself over the mesh; an Observer node of the same owner publishes
+# what it caught (lou-21). In protocol.json; the vectors are vectors/malive-vectors.json, made by the
+# firmware's scripts/malive-vectors.py and copied into the spec unchanged.
+MCC3_HEARD = {
+    "topic": "mcc/heard/<KEY>/<SLOT>", "filter": mcc3.HEARD_FILTER, "slots": mcc3.HEARD_SLOTS,
+    "kind": mcc3.KIND_HEARD, "hkdf_info": mcc3.INFO_HEARD + "<KEY>",
+    "plaintext": mcc3.HEARD_PLAIN, "size": mcc3.HEARD_SIZE, "base64url_chars": 188,
+    "announce": {"kind": mcc3.KIND_ANNOUNCE, "hkdf_info": mcc3.INFO_MALIVE + "<KEY>",
+                 "owner_tag_label": mcc3.OWN_LABEL.decode("ascii"), "size": mcc3.ANNOUNCE_SIZE,
+                 "sealed": mcc3.ANNOUNCE_SEALED, "tag": mcc3.ANNOUNCE_TAG, "kept": mcc3.ANNOUNCE_KEPT,
+                 "max_version": mcc3.ANNOUNCE_MAX_VERSION, "max_name": mcc3.ANNOUNCE_MAX_NAME},
+    "from": firmware.ANNOUNCE_FROM,
+    "vectors": "vectors/malive-vectors.json",
+}
+MCC3_HEARD_LAYOUT = {
+    "heard": "base64url without padding of: kind 0x48, nonce (12, random), then sealed with K_heard "
+             "(ChaCha20-Poly1305, AAD the kind and the nonce, tag 16): the announced node's key (32), the "
+             "announce from its kind byte to its tag (68), heard_at (u32 LE, the catching node's clock, 0 while "
+             "unset), snr (i8, quarter dB), hops (u8), then the same three for the node's last advert (0: none)",
+    "K_heard": "HKDF-SHA256(X25519(owner, catching node), salt empty, info hkdf_info with <KEY> the catching "
+               "node's key as 64 upper-case hex)",
+    "announce": "the announced key's first byte, then the heard entry's first 100 bytes: byte 0, node key "
+                "(1..32), kind 0x4D (33), owner tag (34..37), boot (38..41, u32 LE), sequence (42..45), 47 bytes "
+                "sealed with K_malive (ChaCha20-Poly1305, nonce 00 x 4 then boot then sequence, AAD bytes 1..45), "
+                "then the first 8 bytes of the tag",
+    "K_malive": "HKDF-SHA256(X25519(owner, announced node), salt empty, info announce.hkdf_info with <KEY> the "
+                "announced node's key as 64 upper-case hex)",
+    "owner_tag": "SHA-256(owner_tag_label, command key, node key, boot, sequence), first 4 bytes",
+    "sealed": "uptime (u32 LE), clock (u32, 0 while unset), last command counter (u32), flags (u8, the alive "
+              "message's), battery in millivolts (u16, 0: unknown), version (length byte, at most max_version), "
+              "name (length byte, at most max_name, cut), zeros to 47",
+    "reading": "open the heard entry of each of your own Observer nodes, then the announce inside; one that "
+               "does not open is dropped silently; the newest (boot, sequence) per announced node is kept",
 }
 
 

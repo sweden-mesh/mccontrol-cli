@@ -15,8 +15,10 @@ Set it up
      "get cmd" then says "mesh only". The first key can also come from
      a remote admin login; see [[signing]].
   3. Add it by its own public key, all 64 hex characters ("get
-     public.key" on its console shows it). It is never discovered: a
-     mesh-only node sends no alive message (see [[discover]]).
+     public.key" on its console shows it). A lou-20 node is never
+     discovered: it sends no alive message. From lou-21 it announces
+     itself, and this step is needed only where no Observer node of
+     yours hears it (see [[discover]]).
        mccontrol add cabin <64 hex>
      Give it no region. In the web app: Add nodes, "Add a node by its
      public key".
@@ -46,7 +48,9 @@ What is different on a mesh-only node
   It answers on an airtime budget, and a command over the budget gets
   no answer at all (see [[mesh]], "No answer").
   It shows no online or offline state: that comes from the alive
-  message. "get stats" and "get sensors" still answer over the mesh.
+  message. From lou-21 it shows which of your nodes heard its announce,
+  when, and the battery level it reported. "get stats" and "get
+  sensors" still answer over the mesh.
   It is updated by USB or Bluetooth as before. There is no update over
   the mesh.
 

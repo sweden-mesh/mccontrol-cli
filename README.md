@@ -38,7 +38,15 @@ mcc3; mccontrol-spec's wire format has the bytes):
   `mccontrol discover` (no region) reads them all and lists the nodes that are yours, wherever
   they are: online, offline (the broker cleared its alive), or no longer yours (rekeyed).
   Nothing is sent. `--add` keeps them; a node found this way needs no region. A node without
-  Wi-Fi sends no alive message and is never discovered: add it by its key (below).
+  Wi-Fi sends no alive message. On lou-20 it is never discovered: add it by its key (below).
+- **A node without Wi-Fi announces itself (lou-21).** It floods a sealed announce in its region at
+  start and every 23 hours, with its name, version and battery. An Observer node of yours that
+  hears it keeps it on the broker (`mcc/heard/<KEY>/<slot>`, retained, sealed to your key), and
+  `mccontrol discover` reads those on the same connection: the node is listed as `heard`, with
+  who heard it, and `--add` keeps it as a mesh-only device. The Batt and Seen columns and the
+  device views show its battery with its age and source (`3.71 V, 9 h ago, heard by <node>`),
+  or Beacon's reading when that is newer. Nothing is sent; an announce that does not open with
+  your key is dropped.
 - **An area is one command per node.** `send <IATA> ... --all` and `send <county> ... --county`
   (a node's own `region home`, from its alive) send each of your devices there its own
   command, in random order, spaced 10-90 s apart (5-30 min for a restart), so the fleet does

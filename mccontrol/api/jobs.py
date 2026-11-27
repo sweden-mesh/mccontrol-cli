@@ -428,13 +428,19 @@ def _start_discover_alive(ctx, body):
         part = actions.discover_alive(store, wait_secs=wait, add=add,
                                       progress=ticker(job, lambda n: f"{n} of your nodes alive"))
         for e in part:
+            said = f"{e['state']} {e['version']}".strip()
+            if e.get("heard"):          # a node without Wi-Fi, from the announce one of our nodes caught
+                h = e["heard"]
+                said = ", ".join(x for x in (f"heard by {h['by_name'] or h['by']}",
+                                             f"{h['battery_mv'] / 1000:.2f} V" if h["battery_mv"] else "") if x)
             e = {"node": e["node"], "region": "", "code": 0, "reply": e["version"], "key": e["key"],
-                 "verified": True, "known_as": e["known_as"], "outcome": f"{e['state']} {e['version']}".strip(),
+                 "verified": True, "known_as": e["known_as"], "outcome": said,
                  "name": e["name"], "added": e["added"], "broker": broker, "scheme": "mcc3",
                  "state": e["state"], "version": e["version"]}
             found.append(e)
-            job.land({"node": e["node"], "name": e["name"] or e["known_as"] or e["node"], "command": "alive",
-                      "ok": e["state"] == "online", "code": 0, "code_name": envelope.code_name(0),
+            job.land({"node": e["node"], "name": e["name"] or e["known_as"] or e["node"],
+                      "command": "announce" if e["state"] == "heard" else "alive",
+                      "ok": e["state"] in ("online", "heard"), "code": 0, "code_name": envelope.code_name(0),
                       "reply": e["reply"], "verified": True, "line": e["outcome"]})
         job.update(answered=len(found), text=f"{len(found)} of your nodes found by their alive messages")
         return {"regions": [], "found": found}

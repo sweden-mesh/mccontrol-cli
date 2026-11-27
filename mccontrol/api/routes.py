@@ -50,7 +50,7 @@ def view(ctx, d, columns=None, width=100):
     plus the directory's cells and row, stale and tagged."""
     out = {k: v for k, v in d.items() if k != "reads"}
     for k in ("key", "added", "last_sent", "last_result", "last_heard", "ver", "fleet", "observer_id",
-              "mesh_only", "last_heard_mqtt", "last_heard_mesh"):
+              "mesh_only", "last_heard_mqtt", "last_heard_mesh", "heard"):
         out.setdefault(k, None)
     out.setdefault("notes", "")
     out["tagged"] = d["node"] in ctx.tags
@@ -58,6 +58,8 @@ def view(ctx, d, columns=None, width=100):
     # mcc3 goes through the shared broker; the old scheme through the region's own, or the shared one
     out["broker"] = ctx.store.config()["broker"] if out["scheme"] == "mcc3" else ctx.store.broker_for(d.get("region"))
     out["stale"] = directory.stale(d)
+    out["battery"] = directory.battery_text(d) or None       # the newest reading, its age and its source
+    out["heard_line"] = directory.heard_text(d) or None      # a node without Wi-Fi: who caught its announce
     out["cells"] = directory.cells(d)
     out["row"] = directory.row(d, width, columns=columns).rstrip()
     return out

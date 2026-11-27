@@ -18,8 +18,16 @@ travels over the plane; "get alive.interval" reads it. The broker clears
 the message when the node drops off, which is what "offline" means. After
 a network drop a node is back after about 3 minutes.
 
-A mesh-only node, one without Wi-Fi, is never discovered: it has no MQTT
-and sends no alive message. Add it by its public key; see [[meshonly]].
+A mesh-only node, one without Wi-Fi, has no MQTT and sends no alive
+message. From lou-21 it announces itself over the mesh instead: at start
+and then every 23 hours, with its name, version and battery level. An
+Observer node of yours that hears the announce keeps it on the broker,
+sealed to your key, and the same discovery reads it. The node is listed
+as "heard", with the node that heard it, and is added as a node without
+Wi-Fi. Its battery is shown with its age: "3.71 V, 9 h ago, heard by
+<node>". Nothing is sent and no airtime is used. A lou-20 node without
+Wi-Fi does not announce, and nor does one that no Observer node of yours
+hears: add it by its public key; see [[meshonly]].
 A node without a command key sends none either.
 
 Nodes on lou-19 or older publish no alive message and are found by

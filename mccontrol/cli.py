@@ -329,7 +329,8 @@ def _devices(api, _args):
     for d in rows:
         where = d["scheme"] if d.get("scheme") == "mcc3" else (d.get("region") or "?")   # an IATA only where it is used
         print(f"{(d['name'] or '(unnamed)'):18} {d['node'][:8]}  {where:4}  via {d['broker']:24} "
-              f"last sent {d['last_sent'] or '-':20} {d['last_result'] or '':12} {d['notes']}")
+              f"last sent {d['last_sent'] or '-':20} {d['last_result'] or '':12} {d['notes']}"
+              + (f"  {d['heard_line']}; battery {d['battery'] or 'unknown'}" if d.get("heard_line") else ""))
     return 0
 
 
@@ -646,6 +647,8 @@ def _discover(api, args):
             return 0
         for e in found:
             mark = f"known as {e['known_as']}" if e["known_as"] else ("added" if e["added"] else "")
+            if e["state"] == "heard":       # a node without Wi-Fi: who caught its announce, and its battery
+                mark = "  ".join(x for x in (e["outcome"][len("heard "):], mark) if x)
             print(f"{e['node'][:8]}  {(e['name'] or '-')[:24]:24} {e['version'][:16]:16} {e['state']:9} {mark}")
         print(f"via {found[0]['broker']}")
         return 0

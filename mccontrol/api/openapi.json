@@ -2375,6 +2375,23 @@
         }
        }
       }
+     },
+     "heard": {
+      "type": "object",
+      "nullable": true,
+      "description": "a node without Wi-Fi (lou-21): the newest announce of it that one of your Observer nodes caught and that opened with your key: at (when it was heard, the catching node's clock; at_read true when that clock was unset and the time it was read is given), by and by_name (the catching node), snr (dB), hops, battery_mv (null: the board cannot read it), boot, sequence, uptime, clock, last_counter, flags, version, name"
+     },
+     "battery": {
+      "type": "string",
+      "nullable": true,
+      "description": "the newest battery reading in words, with its age and its source: Beacon's, or the node's announce",
+      "example": "3.71 V, 9 h ago, heard by cabin-observer"
+     },
+     "heard_line": {
+      "type": "string",
+      "nullable": true,
+      "description": "a node without Wi-Fi that announced itself: who heard it, when, the SNR and the hops",
+      "example": "heard by cabin-observer 9 h ago, -5.5 dB, 2 hops"
      }
     },
     "example": {
@@ -3975,9 +3992,10 @@
       "enum": [
        "online",
        "offline",
-       "not-yours"
+       "not-yours",
+       "heard"
       ],
-      "description": "from the alive scan: online (its alive opened), offline (its will cleared it), not-yours (it no longer opens with your key)"
+      "description": "from the alive scan: online (its alive opened), offline (its will cleared it), not-yours (it no longer opens with your key); heard (a node without Wi-Fi whose announce one of your Observer nodes caught, lou-21)"
      },
      "version": {
       "type": "string",

@@ -16,6 +16,7 @@ are base64url without padding. Nothing here connects or sends.
 """
 
 import hashlib
+import hmac
 import secrets
 import struct
 
@@ -625,4 +626,139 @@ def open_alive(keys, payload):
             raise Refused("bad-fields")
         out[name] = p[at + 1:at + 1 + n].decode("utf-8", "replace")
         at += 1 + n
+    return out
+
+
+# -- announce and heard (lou-21): a node without Wi-Fi finds its owner -----------------------
+#
+# A node without Wi-Fi floods an announce over the mesh; an Observer node of the same owner
+# that catches it publishes what it heard, retained, on `mcc/heard/<its KEY>/<slot>`. Two keys
+# of their own, from the same S:
+#
+#     K_malive  HKDF-SHA256(S, salt empty, "mcc3/malive/" + KEY)  the announce; KEY the announcing node's
+#     K_heard   HKDF-SHA256(S, salt empty, "mcc3/heard/"  + KEY)  a heard entry; KEY the catching node's
+
+INFO_MALIVE, INFO_HEARD = "mcc3/malive/", "mcc3/heard/"
+OWN_LABEL = b"mcc3/own|"
+KIND_ANNOUNCE, KIND_HEARD = 0x4D, 0x48                        # "M", "H"
+ANNOUNCE_SIZE, ANNOUNCE_SEALED, ANNOUNCE_TAG = 101, 47, 8     # the tag is cut to its first 8 bytes
+ANNOUNCE_KEPT = 68                 # what a heard entry keeps: the announce from its kind byte on
+ANNOUNCE_MAX_VERSION, ANNOUNCE_MAX_NAME = 14, 16
+HEARD_PLAIN = 112
+HEARD_SIZE = 1 + NONCE_LEN + HEARD_PLAIN + TAG_LEN                                                      # 141
+HEARD_SLOTS = 16
+HEARD_FILTER = f"{TOPIC_ROOT}heard/+/+"
+ANNOUNCE_FIELDS = ("boot", "sequence", "uptime", "clock", "last_counter", "flags", "battery_mv", "version",
+                   "name")
+HEARD_FIELDS = ("heard_at", "snr", "hops", "advert_heard_at", "advert_snr", "advert_hops")
+
+
+def malive_key(secret, node_key_hex):
+    """K_malive, from S and the announcing node's key."""
+    return HKDF(secret, 32, b"", SHA256, context=(INFO_MALIVE + _key_hex(node_key_hex)).encode("ascii"))
+
+
+def heard_key(secret, node_key_hex):
+    """K_heard, from S and the catching node's key."""
+    return HKDF(secret, 32, b"", SHA256, context=(INFO_HEARD + _key_hex(node_key_hex)).encode("ascii"))
+
+
+def heard_topic(node_key_hex, slot):
+    return f"{TOPIC_ROOT}heard/{_key_hex(node_key_hex)}/{int(slot)}"
+
+
+def heard_from_topic(topic):
+    """`(the catching node's KEY, slot)` of `mcc/heard/<KEY>/<slot>`, else None."""
+    parts = (topic or "").split("/")
+    if len(parts) != 4 or parts[0] + "/" != TOPIC_ROOT or parts[1] != "heard" or parts[2] != parts[2].upper():
+        return None
+    key = envelope.node_key(parts[2])
+    if not key or parts[3] not in [str(n) for n in range(HEARD_SLOTS)]:
+        return None
+    return key, int(parts[3])
+
+
+def owner_tag(command_key_hex, node_key_hex, boot, sequence):
+    """The four bytes by which a catching node knows an announce is for its own command key."""
+    return hashlib.sha256(OWN_LABEL + bytes.fromhex(_key_hex(command_key_hex)) + bytes.fromhex(_key_hex(node_key_hex))
+                          + _u32(boot) + _u32(sequence)).digest()[:4]
+
+
+def _announce_nonce(boot, sequence):
+    return bytes(4) + _u32(boot) + _u32(sequence)
+
+
+def seal_announce(key, command_key_hex, node_key_hex, fields):
+    """The 101 bytes a node without Wi-Fi floods (for vectors and tests; the node does this).
+    `key` is K_malive; `fields` as ANNOUNCE_FIELDS."""
+    f = fields
+    node = bytes.fromhex(_key_hex(node_key_hex))
+    plain = (struct.pack("<IIIBH", f["uptime"], f["clock"], f["last_counter"], f["flags"], f["battery_mv"])
+             + _lp(f["version"], ANNOUNCE_MAX_VERSION) + _lp(f["name"], ANNOUNCE_MAX_NAME))
+    head = (node[:1] + node + bytes([KIND_ANNOUNCE]) + owner_tag(command_key_hex, node_key_hex, f["boot"], f["sequence"])
+            + _u32(f["boot"]) + _u32(f["sequence"]))
+    sealed, tag = _aead(key, _announce_nonce(f["boot"], f["sequence"]), head[1:]).encrypt_and_digest(
+        _pad(plain, (ANNOUNCE_SEALED,)))
+    return head + sealed + tag[:ANNOUNCE_TAG]
+
+
+def open_announce(key, command_key_hex, payload):
+    """The fields of an announce (and `node_key`), or Refused: `not-announce` for another size
+    or kind, `other-owner` when its owner tag is not this command key's, `does-not-open` when
+    the seal does not verify under `key` (K_malive of the node it names). The tag is the
+    Poly1305 tag's first 8 bytes: it is made again here and compared."""
+    raw = bytes(payload)
+    if len(raw) != ANNOUNCE_SIZE or raw[33] != KIND_ANNOUNCE:
+        raise Refused("not-announce")
+    node = raw[1:33].hex().upper()
+    boot, sequence = struct.unpack_from("<II", raw, 38)
+    if not hmac.compare_digest(raw[34:38], owner_tag(command_key_hex, node, boot, sequence)):
+        raise Refused("other-owner")
+    nonce, aad, body = _announce_nonce(boot, sequence), raw[1:46], raw[46:46 + ANNOUNCE_SEALED]
+    p = _aead(key, nonce, aad).decrypt(body)
+    _again, tag = _aead(key, nonce, aad).encrypt_and_digest(p)
+    if not hmac.compare_digest(tag[:ANNOUNCE_TAG], raw[46 + ANNOUNCE_SEALED:]):
+        raise Refused("does-not-open")
+    out = {"node_key": node, "boot": boot, "sequence": sequence}
+    out.update(zip(ANNOUNCE_FIELDS[2:7], struct.unpack_from("<IIIBH", p, 0)))
+    at = 15
+    for name, limit in (("version", ANNOUNCE_MAX_VERSION), ("name", ANNOUNCE_MAX_NAME)):
+        n = p[at]
+        if n > limit or at + 1 + n > ANNOUNCE_SEALED:
+            raise Refused("bad-fields")
+        out[name] = p[at + 1:at + 1 + n].decode("utf-8", "replace")
+        at += 1 + n
+    return out
+
+
+def seal_heard(key, node_key_hex, announce, fields, nonce=None):
+    """A catching node's heard entry, the payload of `mcc/heard/<KEY>/<slot>` (for vectors and
+    tests). `key` is K_heard; `announce` the 101 bytes it caught; `fields` as HEARD_FIELDS."""
+    f = fields
+    plain = (bytes.fromhex(_key_hex(node_key_hex)) + bytes(announce)[33:]
+             + struct.pack("<IbBIbB", f["heard_at"], f["snr"], f["hops"], f["advert_heard_at"], f["advert_snr"],
+                           f["advert_hops"]))
+    if len(plain) != HEARD_PLAIN:
+        raise Mcc3Error(f"an announce is {ANNOUNCE_SIZE} bytes")
+    nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
+    header = bytes([KIND_HEARD]) + nonce
+    sealed, tag = _aead(key, nonce, header).encrypt_and_digest(plain)
+    return b64(header + sealed + tag)
+
+
+def open_heard(key, payload):
+    """What a heard entry says, or Refused: `node_key` (the announced node), `announce` (its
+    101 bytes, built again from the 68 kept: still to be opened with `open_announce`), and
+    HEARD_FIELDS: when it was heard by the catching node's clock (0 while that is unset), the
+    SNR in quarter dB, the hops, and the same three for the node's last advert (0: none)."""
+    raw = unb64(payload)
+    if len(raw) != HEARD_SIZE or raw[0] != KIND_HEARD:
+        raise Refused("bad-fields")
+    header, body, tag = raw[:13], raw[13:-TAG_LEN], raw[-TAG_LEN:]
+    try:
+        p = _aead(key, header[1:], header).decrypt_and_verify(body, tag)
+    except ValueError:
+        raise Refused("sig-invalid") from None
+    out = {"node_key": p[:32].hex().upper(), "announce": p[:1] + p[:32 + ANNOUNCE_KEPT]}
+    out.update(zip(HEARD_FIELDS, struct.unpack_from("<IbBIbB", p, 32 + ANNOUNCE_KEPT)))
     return out

@@ -386,7 +386,9 @@ class Board:
             return
         fleet = d.get("fleet") or {}
         info = f"{d['node']}  {d['region']}  {d['cells']['ver'].strip() or 'ver ?'}"
-        if fleet.get("battery_mv"):
+        if d.get("battery"):
+            info += f"  {d['battery']}"
+        elif fleet.get("battery_mv"):
             info += f"  {fleet['battery_mv'] / 1000:.2f} V"
         info += f"  via {d.get('broker') or '?'}"
         self.put(y, x, info[:w], "bright")

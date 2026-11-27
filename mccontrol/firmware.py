@@ -86,6 +86,9 @@ MCC3_FROM = 20
 RELAY_FROM = 20
 # The first revision with `rekey` (a new command key offered by the one in use).
 REKEY_FROM = 20
+# The first revision whose image without Wi-Fi announces itself over the mesh, and whose Observer
+# image publishes what it caught on `mcc/heard/<KEY>/<slot>`. lou-20 does neither.
+ANNOUNCE_FROM = 21
 
 
 # The features follow the revision as a token of their own. A release candidate's revision

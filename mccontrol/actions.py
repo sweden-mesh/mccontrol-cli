@@ -968,13 +968,23 @@ def discover_alive(store, wait_secs=None, progress=None, add=False, client_facto
     those that open are yours. A device you have whose alive is empty is offline; one whose
     alive no longer opens is no longer yours (rekeyed). Reads only; nothing is published.
 
-    Returns `[{node, key, name, version, state, known_as, added, alive}]`, sorted by name."""
+    On the same connection, what your Observer nodes heard (`mcc/heard/<KEY>/<slot>`, lou-21):
+    a node without Wi-Fi that announced itself over the mesh is listed with the state `heard`,
+    and added as a mesh-only device with `add` (`_heard`, below).
+
+    Returns `[{node, key, name, version, state, known_as, added, alive}]`, sorted by name; a
+    heard node's entry has `heard` in place of an alive."""
     config = store.config()
     seed = store.seed()
     cache = store.ecdh_cache()
     before = len(cache)
+    slots = {}
     seen = plane.scan(config, seed, cache, wait_secs=wait_secs or min(10, config.get("wait_secs", 20)),
-                      progress=progress, client_factory=client_factory, store=store)
+                      progress=progress, client_factory=client_factory, store=store, heard=slots)
+    read_at = time.time()
+    announced = plane.newest_heard(plane.open_heard(seed, cache, by, payload)       # of our own nodes only
+                                   for (by, _slot), payload in sorted(slots.items())
+                                   if seen.get(by, ("",))[0] == "ours")
     if len(cache) != before:
         store.save_ecdh_cache(cache)
     by_key = {(d.get("key") or "").upper(): d for d in store.devices() if d.get("key")}
@@ -1003,4 +1013,59 @@ def discover_alive(store, wait_secs=None, progress=None, add=False, client_facto
             adopt(store, {"node": key, "key": key, "region": "", "alive": rec}, entry["name"])
             entry["added"] = True
         found.append(entry)
+    found += _heard(store, announced, {k: v[1] for k, v in seen.items() if v[0] == "ours"}, read_at, add)
     return sorted(found, key=lambda e: (e["name"] or e["node"]).lower())
+
+
+def _iso(at):
+    return datetime.datetime.fromtimestamp(at).replace(microsecond=0).isoformat(sep=" ")
+
+
+def _heard_record(entry, by_name, read_at):
+    """What is kept on a device from an announce one of our Observer nodes caught: the battery
+    with the time it was heard (the catching node's clock; `at_read` marks the time this tool
+    read it instead, when that clock was unset), who heard it, the SNR in dB and the hops."""
+    rec = {"at": _iso(entry["heard_at"] or read_at), "at_read": not entry["heard_at"],
+           "by": entry["by"][:envelope.NODE_HEX_LEN], "by_name": by_name, "snr": entry["snr"] / 4,
+           "battery_mv": entry["battery_mv"] or None}             # 0: the board cannot read it
+    rec.update({k: entry[k] for k in ("hops", "boot", "sequence", "uptime", "clock", "last_counter", "flags",
+                                      "version", "name")})
+    if entry["advert_heard_at"]:                                  # zero until adverts are counted: none
+        rec.update(advert_at=_iso(entry["advert_heard_at"]), advert_snr=entry["advert_snr"] / 4,
+                   advert_hops=entry["advert_hops"])
+    return rec
+
+
+def _heard(store, announced, ours, read_at, add):
+    """The discovery entries for the announced nodes, `{KEY: opened entry}`, newest per node.
+    A device you have keeps the newest (boot, sequence) as its `heard`; one you do not have
+    is added with `add`, as a mesh-only device under the name it announced. A name you gave
+    is never replaced. `ours` maps our Observer nodes' keys to their alive fields."""
+    found = []
+    for key, entry in announced.items():
+        if key in ours:
+            continue                    # a node with an alive message of its own needs no announce
+        node = key[:envelope.NODE_HEX_LEN]
+        d = next((x for x in store.devices() if (x.get("key") or "").upper() == key
+                  or (x["node"] == node and not x.get("key"))), None)
+        by = store.device(entry["by"])
+        rec = _heard_record(entry, (by or {}).get("name") or (ours[entry["by"]] or {}).get("name") or "", read_at)
+        added = False
+        if d is not None:
+            if plane.newer(entry, d.get("heard")):
+                more = {} if d.get("key") else {"key": key}
+                if d.get("mesh_only") is None and not d.get("alive"):
+                    more["mesh_only"] = True        # it announced: an image without Wi-Fi
+                if not d.get("ver") and entry["version"]:
+                    more["ver"] = entry["version"]  # what it announced, until a `ver` says more
+                d = store.update_device(d["node"], heard=rec, **more)
+            else:
+                rec = d["heard"]        # stale, or the same announce caught by another node
+        elif add and store.device(node) is None:
+            adopt(store, {"node": key, "key": key, "region": ""}, entry["name"])
+            store.update_device(node, heard=rec, mesh_only=True, **({"ver": entry["version"]} if entry["version"] else {}))
+            added = True
+        found.append({"node": node, "key": key, "name": entry["name"], "version": entry["version"],
+                      "state": "heard", "known_as": None if d is None else (d.get("name") or d["node"]),
+                      "added": added, "alive": None, "heard": rec})
+    return found

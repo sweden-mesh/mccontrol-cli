@@ -112,8 +112,9 @@ def test_discovery_opens_only_our_alive_and_shows_the_node_wherever_it_is(store,
     assert d["region"] == "" and d["key"] == NODE and d["name"] == "SE-JKG-LOUTEST"
     assert d["alive"]["region"] == "se-jkp" and d["alive"]["old_scheme"] is True       # a fact of the node
     assert actions.scheme(d) == "mcc3"
-    # read only: subscribed to the alive filter, published nothing; a throwaway login, never the command key
-    assert broker.subscribed == [mcc3.ALIVE_FILTER] and broker.published == []
+    # read only: subscribed to the alive filter and what its nodes heard, published nothing; a throwaway
+    # login, never the command key
+    assert broker.subscribed == [mcc3.ALIVE_FILTER, mcc3.HEARD_FILTER] and broker.published == []
     user, password = broker.logins[-1]
     assert user.startswith("v1_") and user[3:] != store.public_key()
     assert json.loads(envelope._unb64(password.split(".")[1]))["client"] == "mccontrol"
