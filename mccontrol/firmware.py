@@ -53,6 +53,7 @@ ADMITTED = (
     ("lou-14", 14, None),
     ("lou-19", 19, None),
     ("lou-20", 20, None),
+    ("lou-21", 21, None),
 )
 
 FEATURE_TOKENS = ("as", "ar", "rc", "asar", "asrc", "arrc", "asarrc")
@@ -64,7 +65,7 @@ AUTOREPLY_FAMILIES = ("trigger", "set autoreply", "get autoreply")
 # Commands the deny list admits that arrived after ar-11: the revision that admits each.
 ARRIVED = {"mqtt.cmd ping": 12, "cmd ping": 20, "ota update": 19,
            "get relay": 20, "get sensors": 20, "set relay off": 20, "set relay own": 20,
-           "get cmd.mesh": 20, "get alive.interval": 20}
+           "get cmd.mesh": 20, "get alive.interval": 20, "set relay any": 21, "get relay.guest": 21}
 
 # The first revision that opens a v2 envelope.
 V2_FROM = 13
@@ -82,12 +83,14 @@ MESH_FROM = 19
 MCC3_FROM = 20
 
 # The first revision whose Observer image relays: it transmits its owner's mesh-road request
-# to another node and returns the answer over MQTT (`set relay off|own`).
+# to another node and returns the answer over MQTT (`set relay off|own`). From lou-21 it relays for
+# anyone by default (`set relay any|own|off`, `set relay.guest <0-100>`).
 RELAY_FROM = 20
 # The first revision with `rekey` (a new command key offered by the one in use).
 REKEY_FROM = 20
-# The first revision whose image without Wi-Fi announces itself over the mesh, and whose Observer
-# image publishes what it caught on `mcc/heard/<KEY>/<slot>`. lou-20 does neither.
+# The first revision whose image without Wi-Fi announces itself over the mesh, signed, and whose
+# Observer image hands every valid announce it hears to the command server's shared node store
+# (`mcc/seen/<KEY>`, kept on `mcc/node/<KEY>`). lou-20 does neither.
 ANNOUNCE_FROM = 21
 
 

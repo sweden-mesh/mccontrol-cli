@@ -134,9 +134,10 @@ def data():
             "mesh_from": firmware.MESH_FROM,
             "relay_from": firmware.RELAY_FROM,
             "announce_from": firmware.ANNOUNCE_FROM,
-            "announce_rule": "from announce_from a node without Wi-Fi announces itself over the mesh, with its "
-                             "battery, and an Observer node of the same owner publishes what it caught on "
-                             "mcc/heard/<KEY>/<slot>; an older node does neither and is added by its key",
+            "announce_rule": "from announce_from a node without Wi-Fi announces itself over the mesh, signed, with "
+                             "its battery, and any Observer node of that revision hands every valid announce "
+                             "it hears to the command server, which keeps it on mcc/node/<KEY>; an older node "
+                             "does neither and is added by its key",
             "relay_rule": "a node relays when it is not mesh only and its revision is relay_from or later, or "
                           "its alive message opened with your key; alive flags bit 4 (0x10) says relaying is on",
             "mesh_only_rule": "a version containing -lou- whose features have rc and which does not contain "
@@ -192,8 +193,8 @@ def data():
             "mcc3_forward": {"kind": mcc3.KIND_FORWARD, "result_kind": mcc3.KIND_FORWARD_RESULT,
                              "hkdf_info": mcc3.INFO_FWD, "flag_zero_hop": mcc3.FLAG_ZERO_HOP,
                              "alive_flag_relay": mcc3.ALIVE_FLAG_RELAY, **MCC3_FORWARD},
-            "mcc3_heard": MCC3_HEARD,
-            "_mcc3_heard_layout": MCC3_HEARD_LAYOUT,
+            "mcc3_store": MCC3_STORE,
+            "_mcc3_store_layout": MCC3_STORE_LAYOUT,
         },
     }
 
@@ -460,6 +461,7 @@ CHECK_COMMANDS = (
     "neighbors x", "clear stats", "gps on", "powersaving off", "sensor list", "foo", "set lat 1", "get lon",
     "set tx 22", "set txdelay 0.5", "tempradio x",
     "set relay own", "set relay off", "get relay", "set cmd.relay own",
+    "set relay any", "get relay.guest", "set relay.guest 10",
 )
 
 CHECK_VERSIONS = (
@@ -494,7 +496,7 @@ CHECK_VERSIONS = (
 
 FIRMWARE_COMMANDS = ("ver", "get autoreply", "set autoreply on", "trigger test", "region", "cmd ping",
                      "get stats", "set txdelay 0.5", "get txdelay", "set prv.key 00", "ota update",
-                     "set relay own", "get relay")
+                     "set relay own", "get relay", "set relay any", "get relay.guest")
 
 FACT_ANSWERS = (
     ("ver", "> esp32s3-v1.17.1-lou-18-arrc-observer-1a2b3c4d"),
@@ -573,39 +575,74 @@ MCC3_FORWARD = {
 }
 
 
-# A node without Wi-Fi announces itself over the mesh; an Observer node of the same owner publishes
-# what it caught (lou-21). In protocol.json; the vectors are vectors/malive-vectors.json, made by the
-# firmware's scripts/malive-vectors.py and copied into the spec unchanged.
-MCC3_HEARD = {
-    "topic": "mcc/heard/<KEY>/<SLOT>", "filter": mcc3.HEARD_FILTER, "slots": mcc3.HEARD_SLOTS,
-    "kind": mcc3.KIND_HEARD, "hkdf_info": mcc3.INFO_HEARD + "<KEY>",
-    "plaintext": mcc3.HEARD_PLAIN, "size": mcc3.HEARD_SIZE, "base64url_chars": 188,
-    "announce": {"kind": mcc3.KIND_ANNOUNCE, "hkdf_info": mcc3.INFO_MALIVE + "<KEY>",
-                 "owner_tag_label": mcc3.OWN_LABEL.decode("ascii"), "size": mcc3.ANNOUNCE_SIZE,
-                 "sealed": mcc3.ANNOUNCE_SEALED, "tag": mcc3.ANNOUNCE_TAG, "kept": mcc3.ANNOUNCE_KEPT,
-                 "max_version": mcc3.ANNOUNCE_MAX_VERSION, "max_name": mcc3.ANNOUNCE_MAX_NAME},
+# A node without Wi-Fi announces itself over the mesh, signed; any lou-21 Observer hands what it
+# hears to the command server's shared node store; mccontrol finds its nodes there and reaches them
+# through any Observer that caught them, a stranger's with a guest forward (lou-21, group G). In
+# protocol.json. The vectors are vectors/malive-vectors.json, made by the firmware's
+# scripts/malive-vectors.py and copied into the spec unchanged. The packets between nodes (the
+# Observer's forward, the zero-hop state and ack, the direct report, the path ack) are the
+# firmware's alone: no tool builds them, so their numbers are written here as the firmware has them.
+MCC3_STORE = {
     "from": firmware.ANNOUNCE_FROM,
+    "announce": {"kind": mcc3.KIND_ANNOUNCE, "size": mcc3.ANNOUNCE_SIGNED_SIZE, "signed_bytes": mcc3.ANNOUNCE_SIZE - 1,
+                 "signature": mcc3.SIG_LEN, "signature_label": mcc3.ANN_LABEL.decode("ascii"),
+                 "hkdf_info": mcc3.INFO_MALIVE + "<KEY>", "owner_tag_label": mcc3.OWN_LABEL.decode("ascii"),
+                 "sealed": mcc3.ANNOUNCE_SEALED, "tag": mcc3.ANNOUNCE_TAG,
+                 "max_version": mcc3.ANNOUNCE_MAX_VERSION, "max_name": mcc3.ANNOUNCE_MAX_NAME,
+                 "interval_secs": 82800, "reliable_interval_secs": 43200, "spread": "a tenth either way"},
+    "seen": {"topic": "mcc/seen/<KEY>", "kind": 0x53, "size": 168, "base64url_chars": 224,
+             "via": {"zero_hop": mcc3.VIA_ZERO_HOP, "direct": mcc3.VIA_DIRECT, "flood": mcc3.VIA_FLOOD},
+             "queue": 8, "gap_secs": 2, "again_after_secs": 600},
+    "node": {"topic": "mcc/node/<KEY>", "filter": mcc3.NODE_FILTER, "kind": mcc3.KIND_NODE,
+             "head": mcc3.NODE_HEAD, "catcher": mcc3.NODE_CATCHER_SIZE, "catchers_a_list": 4,
+             "lists": {"current": 0, "previous": 1}, "kept_days": 365},
+    "zero_hop": {"payload_type": 0x0B, "state": 0xA0, "state_size": 167, "ack": 0xB0, "ack_size": 41,
+                 "named_bytes": 2, "report_id": 4},
+    "direct_report": {"named_bytes": 2, "max_size": 184},
+    "path_ack": {"kind": 0x4B, "size": 55, "path": 16, "max_path": 8},
+    "guest_forward": {"kind": mcc3.KIND_GUEST_FORWARD, "size": mcc3.GUEST_FORWARD_SIZE, "base64url_chars": 412,
+                      "aad": 45, "hkdf_info": mcc3.INFO_GFWD + "<KEY>", "guest_key_info": mcc3.INFO_GUEST_KEY,
+                      "result_kind": mcc3.KIND_FORWARD_RESULT},
+    "relay": {"modes": {"own": 0, "off": 1, "any": 2}, "default": "any", "guest_floods": 10, "guest_floods_max": 100,
+              "guests_share": "half", "target_floods": 10, "rings": 16},
     "vectors": "vectors/malive-vectors.json",
 }
-MCC3_HEARD_LAYOUT = {
-    "heard": "base64url without padding of: kind 0x48, nonce (12, random), then sealed with K_heard "
-             "(ChaCha20-Poly1305, AAD the kind and the nonce, tag 16): the announced node's key (32), the "
-             "announce from its kind byte to its tag (68), heard_at (u32 LE, the catching node's clock, 0 while "
-             "unset), snr (i8, quarter dB), hops (u8), then the same three for the node's last advert (0: none)",
-    "K_heard": "HKDF-SHA256(X25519(owner, catching node), salt empty, info hkdf_info with <KEY> the catching "
-               "node's key as 64 upper-case hex)",
-    "announce": "the announced key's first byte, then the heard entry's first 100 bytes: byte 0, node key "
-                "(1..32), kind 0x4D (33), owner tag (34..37), boot (38..41, u32 LE), sequence (42..45), 47 bytes "
-                "sealed with K_malive (ChaCha20-Poly1305, nonce 00 x 4 then boot then sequence, AAD bytes 1..45), "
-                "then the first 8 bytes of the tag",
+MCC3_STORE_LAYOUT = {
+    "announce": "the first byte of the node's key, the node's key (1..32), kind 0x4D (33), owner tag (34..37), "
+                "boot (38..41, u32 LE), sequence (42..45), 47 bytes sealed with K_malive (ChaCha20-Poly1305, nonce "
+                "00 x 4 then boot then sequence, AAD bytes 1..45), the first 8 bytes of the tag (93..100), then the "
+                "node's Ed25519 signature over signature_label and bytes 1..100 (101..164)",
     "K_malive": "HKDF-SHA256(X25519(owner, announced node), salt empty, info announce.hkdf_info with <KEY> the "
                 "announced node's key as 64 upper-case hex)",
     "owner_tag": "SHA-256(owner_tag_label, command key, node key, boot, sequence), first 4 bytes",
     "sealed": "uptime (u32 LE), clock (u32, 0 while unset), last command counter (u32), flags (u8, the alive "
               "message's), battery in millivolts (u16, 0: unknown), version (length byte, at most max_version), "
               "name (length byte, at most max_name, cut), zeros to 47",
-    "reading": "open the heard entry of each of your own Observer nodes, then the announce inside; one that "
-               "does not open is dropped silently; the newest (boot, sequence) per announced node is kept",
+    "seen": "base64url without padding of: kind 0x53, the announce's bytes 1..164, SNR (i8, quarter dB), hops (u8), "
+            "via (u8); published once, not retained, by the Observer on its own key's topic",
+    "node": "base64url without padding of: kind 0x4E, the announce's bytes 1..164, count (u8), then count x ("
+            "Observer key 32, arrival u32 LE by the server's clock, SNR i8, hops u8, via u8, list u8); retained; "
+            "each list holds the first catchers_a_list Observers to report that announce",
+    "state": "zero_hop.state, the named Observer's key's first 2 bytes (00 00: none), the announce's bytes 1..164; "
+             "a PAYLOAD_TYPE_CONTROL packet with no path, never forwarded",
+    "ack": "zero_hop.ack, the node's key's first 4 bytes, the report id (the signature's first 4 bytes), the "
+           "Observer's whole key (32); unsigned",
+    "direct_report": "an ANON_REQ sent direct along a path: the 165-byte announce, the Observer it is for (its "
+                     "key's first 2 bytes), the path length (u8), the path from the node to that Observer; the "
+                     "trailer is outside the signature",
+    "path_ack": "an ANON_REQ sent direct along the reversed path: the node's key's first byte, the Observer's key "
+                "(32), kind 0x4B, the report id (4), the path length (u8), the path from the node to the Observer "
+                "in a 16-byte field, zero after it",
+    "guest_key": "an Ed25519 key pair whose seed is HKDF-SHA256(command seed, salt empty, info guest_key_info): "
+                 "derived again each time, never stored, never shown, not linkable to the command key",
+    "guest_forward": "base64url without padding of: kind 0x47 (G), the guest key (32), nonce (12), then the "
+                     "fields of a forward from its counter on, sealed with K_gfwd (ChaCha20-Poly1305, AAD the "
+                     "first 45 bytes); the result is a forward result (kind 0x66) sealed with K_gfwd",
+    "K_gfwd": "HKDF-SHA256(X25519(guest key, relay), salt empty, info guest_forward.hkdf_info with <KEY> the relay's "
+              "key as 64 upper-case hex)",
+    "reading": "for each retained mcc/node/<KEY>: the owner tag with your own command key (one SHA-256), then the "
+               "node's signature, then the seal; one that fails is skipped silently; remember each (node key, "
+               "boot, sequence) tried",
 }
 
 
@@ -883,6 +920,34 @@ def mcc3_vectors():
                    "sig-invalid"),
     ]
 
+    # A guest forward (lou-21): through a relay that is not the owner's, so it carries the owner's
+    # guest key, derived from the command seed, and never the command key. The second node stands
+    # in for a stranger's relay; the target is the node.
+    relay = pub["other_node"]
+    guest_seed = mcc3.guest_seed(s["command"])
+    guest_key = envelope.public_key_hex(guest_seed)
+    guest_secret = mcc3.shared_secret(guest_seed, relay)
+    gk = mcc3.guest_keys(guest_secret, relay)
+    g_nonce = _nonce(0x70)
+    g_payload = mcc3.seal_guest_forward(gk, guest_key, relay, 11, MCC3_EXPIRY, MCC3_RID, node, mcc3.ROUTE_FLOOD,
+                                        v3[4:], nonce=g_nonce)
+    g_opened = mcc3.open_guest_forward(s["other_node"], g_payload)
+    g_result = mcc3.seal_forward_result(gk, 11, 10, 1794999990, nonce=_nonce(0x71))
+    guest_forwards = [{
+        "name": "G1 the owner's guest key through a relay that is not the owner's, flooded in its region home; "
+                "refused guest-cap",
+        "command_seed": s["command"], "guest_key_info": mcc3.INFO_GUEST_KEY, "guest_seed": guest_seed,
+        "guest_key": guest_key, "relay": relay, "shared_secret": guest_secret.hex().upper(),
+        "k_gfwd": gk["fwd"].hex().upper(), "counter": 11, "expiry": MCC3_EXPIRY, "rid": MCC3_RID.hex().upper(),
+        "target": node, "route": mcc3.ROUTE_FLOOD, "path_len": 0, "body": v3[4:].hex().upper(),
+        "nonce": g_nonce.hex().upper(), "topic": mcc3.command_topic(relay), "bytes": len(mcc3.unb64(g_payload)),
+        "payload": g_payload,
+        "opened": {"guest": g_opened["guest"], "counter": g_opened["counter"], "expiry": g_opened["expiry"],
+                   "target": g_opened["target"], "route": g_opened["route"]},
+        "result": {"status": 10, "status_name": mcc3.FORWARD_STATUSES[10], "clock": 1794999990,
+                   "nonce": _nonce(0x71).hex().upper(), "payload": g_result},
+    }]
+
     not_built = [{"road": road, "command": text} for road, text in (
         ("mqtt", ""), ("mqtt", "a|b"), ("mqtt", "z" * 161), ("mqtt", "bell\x07"), ("mesh", "z" * 58),
         ("mesh", "set wifi.ssid " + "Ö" * 22))]
@@ -923,6 +988,7 @@ def mcc3_vectors():
         "mesh_responses": mesh_responses,
         "forwards": forwards,
         "forward_results": forward_results,
+        "guest_forwards": guest_forwards,
         "alive": alives,
         "refusals": refusals,
         "not_built": not_built,

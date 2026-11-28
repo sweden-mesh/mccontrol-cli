@@ -15,6 +15,24 @@ What can be a relay
   its own command key and nobody else. A node without a command key
   never relays, and a mesh-only node cannot: it has no MQTT.
 
+Someone else's Observer (lou-21)
+  From lou-21 any Observer relays for anyone, within half of its
+  budget. The Observers that caught a node's announce are kept with the
+  node (see [[meshonly]]), and any of them can be the relay: name it, or
+  let the tool choose.
+    mccontrol send cabin ver --via relay:auto
+    mccontrol send cabin ver --via relay:7316CA78
+  auto takes your own Observer if it caught the node, else the one with
+  the fewest hops, then the best signal. A relay that twice in a row
+  brought no answer from the node is moved to the end of the list, and
+  auto skips it; name it to use it anyway. A stranger's Observer is
+  reached with a guest forward, sealed between you and that relay. It
+  can refuse with:
+    guest-cap     you used the floods it gives one guest today.
+    guests-full   its share for guests is used up today.
+    target-cap    the node had all the floods from guests it allows.
+  Nothing was sent then. Its count starts again at midnight UTC.
+
 What the relay does
   It sends the mesh request the tool built for the target, waits up to
   two minutes, and returns the target's answer over MQTT. It runs

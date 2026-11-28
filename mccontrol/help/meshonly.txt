@@ -48,8 +48,9 @@ What is different on a mesh-only node
   It answers on an airtime budget, and a command over the budget gets
   no answer at all (see [[mesh]], "No answer").
   It shows no online or offline state: that comes from the alive
-  message. From lou-21 it shows which of your nodes heard its announce,
-  when, and the battery level it reported. "get stats" and "get
+  message. From lou-21 it shows which Observer heard its announce,
+  when, and the battery level it reported; those Observers can relay to
+  it (see [[relay]]). "get stats" and "get
   sensors" still answer over the mesh.
   It is updated by USB or Bluetooth as before. There is no update over
   the mesh.

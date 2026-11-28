@@ -623,8 +623,8 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
             line = "an answer came that does not open with this node's key; ignored"
         elif status == mcc3.FORWARD_NO_ANSWER:
             line = "no answer (not a refusal: the node may have run the command)"
-        elif status in mcc3.FORWARD_HELP or status in mcc3.GUEST_HELP:
-            line = f"not sent, the relay says {said['status']}: {mcc3.FORWARD_HELP.get(status) or mcc3.GUEST_HELP[status]}"
+        elif status in mcc3.FORWARD_HELP:
+            line = f"not sent, the relay says {said['status']}: {mcc3.FORWARD_HELP[status]}"
         else:
             line = f"the relay says {said['status']}, which this version does not know"
     store.record(node, command, topic, result, road=RELAY_ROAD, relay=said,

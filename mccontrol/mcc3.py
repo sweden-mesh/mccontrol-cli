@@ -67,8 +67,9 @@ FORWARD_RESULT_PLAIN = 256
 FORWARD_RESULT_PATH = 64
 FORWARD_MAX_RESPONSE = 167
 FORWARD_RESULT_SIZE = 1 + NONCE_LEN + FORWARD_RESULT_PLAIN + TAG_LEN                                    # 285
+# 10 to 12 are lou-21's refusals of a guest forward, through a stranger's relay.
 FORWARD_STATUSES = ("answered", "no-answer", "off", "expired", "replay", "bad-body", "busy", "rate-limited",
-                    "clock-unset", "send-failed")
+                    "clock-unset", "send-failed", "guest-cap", "guests-full", "target-cap")
 FORWARD_ANSWERED, FORWARD_NO_ANSWER = 0, 1
 # What a relay's status means to a person. No answer is never a refusal.
 FORWARD_HELP = {
@@ -85,6 +86,12 @@ FORWARD_HELP = {
        "sent. Try again in a few minutes: get relay on the relay shows what is left.",
     8: "The relay has no time yet. Nothing was sent. Try again in a minute.",
     9: "The relay could not send right now. Nothing was sent. Try again.",
+    10: "The relay belongs to someone else, and you have used the floods it gives one guest today. Nothing "
+        "was sent. Choose another relay, or try again after midnight UTC.",
+    11: "The relay belongs to someone else, and its share for guests is used up for today. Nothing was sent. "
+        "Choose another relay, or try again after midnight UTC.",
+    12: "This node has had all the floods from guests that the relay allows one node today. Nothing was sent. "
+        "Try again after midnight UTC, or send by a direct route.",
 }
 FORWARD_HELP_SV = {
     0: "Reläet skickade kommandot och noden svarade.",
@@ -100,6 +107,12 @@ FORWARD_HELP_SV = {
        "skickades. Försök igen om några minuter: get relay på reläet visar vad som är kvar.",
     8: "Reläet har ingen tid ännu. Inget skickades. Försök igen om en minut.",
     9: "Reläet kunde inte sända just nu. Inget skickades. Försök igen.",
+    10: "Reläet tillhör någon annan, och du har använt de floods det ger en gäst i dag. Inget skickades. Välj "
+        "ett annat relä, eller försök igen efter midnatt UTC.",
+    11: "Reläet tillhör någon annan, och dess andel för gäster är slut för i dag. Inget skickades. Välj ett "
+        "annat relä, eller försök igen efter midnatt UTC.",
+    12: "Noden har fått alla floods från gäster som reläet tillåter en nod i dag. Inget skickades. Försök igen "
+        "efter midnatt UTC, eller skicka med en direkt väg.",
 }
 FORWARD_MAX_TTL = 300              # a relay refuses an expiry further ahead of its clock
 SENT_NOTHING, SENT_DIRECT, SENT_FLOOD = 0, 1, 2
@@ -642,53 +655,25 @@ def open_alive(keys, payload):
     return out
 
 
-# -- announce and heard (lou-21): a node without Wi-Fi finds its owner -----------------------
+# -- the announce (lou-21): a node without Wi-Fi finds its owner ------------------------------
 #
-# A node without Wi-Fi floods an announce over the mesh; an Observer node of the same owner
-# that catches it publishes what it heard, retained, on `mcc/heard/<its KEY>/<slot>`. Two keys
-# of their own, from the same S:
+# A node without Wi-Fi announces itself over the mesh; any lou-21 Observer that hears it hands it
+# to the command server's shared node store (below). The sealed part is under a key of its own:
 #
-#     K_malive  HKDF-SHA256(S, salt empty, "mcc3/malive/" + KEY)  the announce; KEY the announcing node's
-#     K_heard   HKDF-SHA256(S, salt empty, "mcc3/heard/"  + KEY)  a heard entry; KEY the catching node's
+#     K_malive  HKDF-SHA256(S, salt empty, "mcc3/malive/" + KEY)  KEY the announcing node's
 
-INFO_MALIVE, INFO_HEARD = "mcc3/malive/", "mcc3/heard/"
+INFO_MALIVE = "mcc3/malive/"
 OWN_LABEL = b"mcc3/own|"
-KIND_ANNOUNCE, KIND_HEARD = 0x4D, 0x48                        # "M", "H"
-ANNOUNCE_SIZE, ANNOUNCE_SEALED, ANNOUNCE_TAG = 101, 47, 8     # the tag is cut to its first 8 bytes
-ANNOUNCE_KEPT = 68                 # what a heard entry keeps: the announce from its kind byte on
+KIND_ANNOUNCE = 0x4D                                          # "M"
+ANNOUNCE_SIZE, ANNOUNCE_SEALED, ANNOUNCE_TAG = 101, 47, 8     # before the signature; the tag is cut to 8 bytes
 ANNOUNCE_MAX_VERSION, ANNOUNCE_MAX_NAME = 14, 16
-HEARD_PLAIN = 112
-HEARD_SIZE = 1 + NONCE_LEN + HEARD_PLAIN + TAG_LEN                                                      # 141
-HEARD_SLOTS = 16
-HEARD_FILTER = f"{TOPIC_ROOT}heard/+/+"
 ANNOUNCE_FIELDS = ("boot", "sequence", "uptime", "clock", "last_counter", "flags", "battery_mv", "version",
                    "name")
-HEARD_FIELDS = ("heard_at", "snr", "hops", "advert_heard_at", "advert_snr", "advert_hops")
 
 
 def malive_key(secret, node_key_hex):
     """K_malive, from S and the announcing node's key."""
     return HKDF(secret, 32, b"", SHA256, context=(INFO_MALIVE + _key_hex(node_key_hex)).encode("ascii"))
-
-
-def heard_key(secret, node_key_hex):
-    """K_heard, from S and the catching node's key."""
-    return HKDF(secret, 32, b"", SHA256, context=(INFO_HEARD + _key_hex(node_key_hex)).encode("ascii"))
-
-
-def heard_topic(node_key_hex, slot):
-    return f"{TOPIC_ROOT}heard/{_key_hex(node_key_hex)}/{int(slot)}"
-
-
-def heard_from_topic(topic):
-    """`(the catching node's KEY, slot)` of `mcc/heard/<KEY>/<slot>`, else None."""
-    parts = (topic or "").split("/")
-    if len(parts) != 4 or parts[0] + "/" != TOPIC_ROOT or parts[1] != "heard" or parts[2] != parts[2].upper():
-        return None
-    key = envelope.node_key(parts[2])
-    if not key or parts[3] not in [str(n) for n in range(HEARD_SLOTS)]:
-        return None
-    return key, int(parts[3])
 
 
 def owner_tag(command_key_hex, node_key_hex, boot, sequence):
@@ -717,7 +702,8 @@ def seal_announce(key, command_key_hex, node_key_hex, fields):
 
 def open_announce(key, command_key_hex, payload):
     """The fields of an announce's first 101 bytes (and `node_key`), or Refused: `not-announce`
-    for another size (101, or 165 signed: the signature is `open_signed_announce`'s) or kind, `other-owner` when its owner tag is not this command key's, `does-not-open` when
+    for another size (101, or 165 signed: the signature is `open_signed_announce`'s) or kind,
+    `other-owner` when its owner tag is not this command key's, `does-not-open` when
     the seal does not verify under `key` (K_malive of the node it names). The tag is the
     Poly1305 tag's first 8 bytes: it is made again here and compared."""
     raw = bytes(payload)
@@ -744,39 +730,6 @@ def open_announce(key, command_key_hex, payload):
     return out
 
 
-def seal_heard(key, node_key_hex, announce, fields, nonce=None):
-    """A catching node's heard entry, the payload of `mcc/heard/<KEY>/<slot>` (for vectors and
-    tests). `key` is K_heard; `announce` the 101 bytes it caught; `fields` as HEARD_FIELDS."""
-    f = fields
-    plain = (bytes.fromhex(_key_hex(node_key_hex)) + bytes(announce)[33:]
-             + struct.pack("<IbBIbB", f["heard_at"], f["snr"], f["hops"], f["advert_heard_at"], f["advert_snr"],
-                           f["advert_hops"]))
-    if len(plain) != HEARD_PLAIN:
-        raise Mcc3Error(f"an announce is {ANNOUNCE_SIZE} bytes")
-    nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
-    header = bytes([KIND_HEARD]) + nonce
-    sealed, tag = _aead(key, nonce, header).encrypt_and_digest(plain)
-    return b64(header + sealed + tag)
-
-
-def open_heard(key, payload):
-    """What a heard entry says, or Refused: `node_key` (the announced node), `announce` (its
-    101 bytes, built again from the 68 kept: still to be opened with `open_announce`), and
-    HEARD_FIELDS: when it was heard by the catching node's clock (0 while that is unset), the
-    SNR in quarter dB, the hops, and the same three for the node's last advert (0: none)."""
-    raw = unb64(payload)
-    if len(raw) != HEARD_SIZE or raw[0] != KIND_HEARD:
-        raise Refused("bad-fields")
-    header, body, tag = raw[:13], raw[13:-TAG_LEN], raw[-TAG_LEN:]
-    try:
-        p = _aead(key, header[1:], header).decrypt_and_verify(body, tag)
-    except ValueError:
-        raise Refused("sig-invalid") from None
-    out = {"node_key": p[:32].hex().upper(), "announce": p[:1] + p[:32 + ANNOUNCE_KEPT]}
-    out.update(zip(HEARD_FIELDS, struct.unpack_from("<IbBIbB", p, 32 + ANNOUNCE_KEPT)))
-    return out
-
-
 # -- the signed announce and the shared node store (lou-21, L21-G1) --------------------------
 #
 # From lou-21 the announce is signed by the node's identity key, and any lou-21 Observer that
@@ -786,10 +739,9 @@ def open_heard(key, payload):
 #
 #     signature  Ed25519 by the node over "mcc3/ann|" + bytes 1..100, at bytes 101..164
 #     entry      'N' ‖ announce bytes 1..164 ‖ count ‖ count x (Observer key 32 ‖ arrival u32 ‖
-#                SNR i8 ‖ hops ‖ via ‖ list), 40 bytes a catcher (the note's sum says 39)
+#                SNR i8 ‖ hops ‖ via ‖ list), 40 bytes a catcher
 #
-# TODO(L21-G2): mccontrol-spec does not carry these yet; the constants stay here (and out of
-# webexport) until it does.
+# In mccontrol-spec from v0.6.0 (protocol.json `mcc3_store`, protocol.md 12.4 to 12.8).
 
 ANN_LABEL = b"mcc3/ann|"
 ANNOUNCE_SIGNED_SIZE = ANNOUNCE_SIZE + SIG_LEN                                                        # 165
@@ -909,30 +861,9 @@ INFO_GUEST_KEY = "mcc3/guestkey/"
 INFO_GFWD = "mcc3/gfwd/"
 KIND_GUEST_FORWARD = 0x47                                                                             # "G"
 GUEST_FORWARD_SIZE = 1 + 32 + NONCE_LEN + (FORWARD_SIZE - 2 - NONCE_LEN)                             # 309
-# lou-21's refusals of a guest forward. TODO(L21-G2): the numbers follow the order the design
-# note lists them in; the spec's results.json does not carry them yet.
-GUEST_STATUSES = {10: "guest-cap", 11: "guests-full", 12: "target-cap"}
-GUEST_HELP = {
-    10: "The relay belongs to someone else, and you have used the floods it gives one guest today. Nothing "
-        "was sent. Choose another relay, or try again after midnight UTC.",
-    11: "The relay belongs to someone else, and its share for guests is used up for today. Nothing was sent. "
-        "Choose another relay, or try again after midnight UTC.",
-    12: "This node has had all the floods from guests that the relay allows one node today. Nothing was sent. "
-        "Try again after midnight UTC, or send by a direct route.",
-}
-GUEST_HELP_SV = {
-    10: "Reläet tillhör någon annan, och du har använt de floods det ger en gäst i dag. Inget skickades. Välj "
-        "ett annat relä, eller försök igen efter midnatt UTC.",
-    11: "Reläet tillhör någon annan, och dess andel för gäster är slut för i dag. Inget skickades. Välj ett "
-        "annat relä, eller försök igen efter midnatt UTC.",
-    12: "Noden har fått alla floods från gäster som reläet tillåter en nod i dag. Inget skickades. Försök igen "
-        "efter midnatt UTC, eller skicka med en direkt väg.",
-}
-
-
 def status_name(status):
     """A forward result's status in words, the guest refusals too; None for one not known."""
-    return FORWARD_STATUSES[status] if status < len(FORWARD_STATUSES) else GUEST_STATUSES.get(status)
+    return FORWARD_STATUSES[status] if status < len(FORWARD_STATUSES) else None
 
 
 def guest_seed(command_seed_hex):

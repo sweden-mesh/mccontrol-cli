@@ -202,7 +202,8 @@ def test_forward_result_f3_carries_v4():
 
 def test_forward_statuses_and_routes():
     assert mcc3.FORWARD_STATUSES == ("answered", "no-answer", "off", "expired", "replay", "bad-body", "busy",
-                                     "rate-limited", "clock-unset", "send-failed")
+                                     "rate-limited", "clock-unset", "send-failed", "guest-cap", "guests-full",
+                                     "target-cap")
     assert mcc3.ROUTES == ("direct", "flood", "flood-wide")
     assert (mcc3.KIND_FORWARD, mcc3.KIND_FORWARD_RESULT) == (0x46, 0x66)
     assert mcc3.open_forward_result(K, mcc3.seal_forward_result(K, 1, 77, 0))["name"] is None

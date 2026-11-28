@@ -1,7 +1,8 @@
 """The shared node store and relaying through anyone's Observer (lou-21, L21-G9). A node without
 Wi-Fi signs its announce; any lou-21 Observer hands it to the command server, which keeps one
-entry per node, retained on `mcc/node/<KEY>`. Here: the bytes (the first 101 still pinned by the
-firmware's malive vectors, the signature, the entry and the guest forward by vectors of this
+entry per node, retained on `mcc/node/<KEY>`. Here: the bytes (the firmware's malive vectors in
+the spec: the signed announces, the Observer's forwards, the packets' sizes and a guest forward;
+the tools' guest forward with the derived guest key; the entry and the guest forward by vectors of this
 file with fixed keys, the same hex mccontrol-web's test/node-store.test.js pins, made there by
 another implementation), the discovery from a FAKE broker (tag, signature, seal, the tried
 cache, a forgotten node stays out), the relay choice and a guest forward through a stranger's
@@ -9,14 +10,15 @@ relay, and what a screen shows. Nothing here opens a broker or a radio."""
 import datetime
 import json
 import pathlib
+import struct
 import types
 
 import pytest
 
 from mccontrol import actions, beacon, directory, envelope, mcc3, mesh, plane, store as _store, transport
 
-V = json.loads((pathlib.Path(__file__).resolve().parents[1] / "spec" / "vectors" / "malive-vectors.json")
-               .read_text(encoding="utf-8"))
+SPEC = pathlib.Path(__file__).resolve().parents[1] / "spec"
+V = json.loads((SPEC / "vectors" / "malive-vectors.json").read_text(encoding="utf-8"))
 SEEDS, PUB, C = V["keys"]["seeds"], V["keys"]["public"], V["constants"]
 OWNER_SEED, OWNER = SEEDS["owner"], PUB["owner"]
 NODE_SEED, NODE = SEEDS["node"], PUB["node"]
@@ -72,31 +74,80 @@ def refused(raw, key=K_MALIVE, cmd=OWNER):
 # -- the bytes -------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("a", V["announces"], ids=lambda a: a["name"])
-def test_the_first_101_bytes_are_still_the_firmware_vectors(a):
-    key, node = mcc3.malive_key(mcc3.shared_secret(OWNER_SEED, PUB[a["node"]]), PUB[a["node"]]), PUB[a["node"]]
-    raw = mcc3.seal_announce(key, OWNER, node, a["fields"])
-    assert raw.hex().upper() == a["payload"]
-    opened = mcc3.open_announce(key, OWNER, raw)
+def test_every_firmware_announce_is_made_byte_for_byte_signed_and_opens(a):
+    seed, node = SEEDS[a["node"]], PUB[a["node"]]
+    key = mcc3.malive_key(mcc3.shared_secret(OWNER_SEED, node), node)
+    raw = mcc3.sign_announce(seed, mcc3.seal_announce(key, OWNER, node, a["fields"]))
+    assert len(raw) == a["bytes"] == C["payload_bytes"] and raw.hex().upper() == a["payload"]
+    assert raw[mcc3.ANNOUNCE_SIZE:].hex().upper() == a["signature"]
+    opened = mcc3.open_signed_announce(key, OWNER, raw)
     assert opened.pop("node_key") == node and opened == a["opened"]
 
 
 @pytest.mark.parametrize("r", V["refusals"], ids=lambda r: r["name"])
-def test_every_vector_refusal_is_still_refused(r):
+def test_every_vector_refusal_is_refused(r):
+    """The vectors give the Observer's word, which checks the signature first; a tool checks the
+    owner tag first (one SHA-256), so a changed boot counter or node key is other-owner here."""
+    raw = bytes.fromhex(r["input"])
     with pytest.raises(mcc3.Refused) as said:
-        mcc3.open_announce(K_MALIVE, OWNER, bytes.fromhex(r["input"]))
-    assert said.value.outcome == r["outcome"]
+        mcc3.open_signed_announce(K_MALIVE, OWNER, raw)
+    tag_first = r["outcome"] == "bad-signature" and not mcc3.announce_is_for(OWNER, raw)
+    assert said.value.outcome == ("other-owner" if tag_first else r["outcome"])
+    if r["outcome"] == "bad-signature":
+        assert not mcc3.announce_signature_ok(raw)
+
+
+@pytest.mark.parametrize("s", V["seen"], ids=lambda s: s["name"])
+def test_the_observers_seen_forward_carries_the_announce_a_tool_finds_in_the_store(s):
+    raw = mcc3.unb64(s["payload"])
+    assert len(raw) == s["bytes"] == C["seen_bytes"] and raw[0] == C["kind_seen"]
+    announce = raw[1:2] + raw[1:mcc3.ANNOUNCE_SIGNED_SIZE]
+    assert announce.hex().upper() == s["opened"]["announce"] and mcc3.announce_signature_ok(announce)
+    snr, hops, via = struct.unpack_from("<bBB", raw, 165)
+    assert (snr, hops, via) == (s["opened"]["snr"], s["opened"]["hops"], s["opened"]["via"])
+    entry = mcc3.open_node_entry(mcc3.seal_node_entry(announce, [{"key": CATCHER, "arrival": 1, "snr": snr,
+                                                                  "hops": hops, "via": via, "list": 0}]))
+    assert entry["node_key"] == s["opened"]["node_key"] and entry["catchers"][0]["via"] == via
+
+
+def test_the_spec_carries_the_firmwares_numbers():
+    p = json.loads((SPEC / "data" / "protocol.json").read_text(encoding="utf-8"))["mcc3_store"]
+    assert (p["announce"]["kind"], p["announce"]["size"], p["announce"]["signed_bytes"], p["announce"]["signature"],
+            p["announce"]["signature_label"], p["announce"]["sealed"], p["announce"]["tag"],
+            p["announce"]["owner_tag_label"], p["announce"]["max_version"], p["announce"]["max_name"],
+            p["announce"]["interval_secs"]) == (
+        C["kind"], C["payload_bytes"], C["signed_bytes"], C["signature_bytes"], C["label_signature"],
+        C["sealed_bytes"], C["tag_bytes"], C["label_owner_tag"], C["max_version"], C["max_name"], C["interval_seconds"])
+    assert p["announce"]["hkdf_info"] == C["label_malive"] + "<KEY>"
+    assert (p["seen"]["kind"], p["seen"]["size"], p["seen"]["base64url_chars"], p["seen"]["via"], p["seen"]["queue"],
+            p["seen"]["gap_secs"], p["seen"]["again_after_secs"]) == (
+        C["kind_seen"], C["seen_bytes"], C["seen_base64url_chars"], C["via"], C["seen_queue"], C["seen_gap_seconds"],
+        C["seen_again_after_seconds"])
+    assert (p["zero_hop"]["state"], p["zero_hop"]["state_size"], p["zero_hop"]["ack"], p["zero_hop"]["ack_size"],
+            p["path_ack"]["kind"], p["path_ack"]["size"]) == (
+        C["control_state"], C["state_bytes"], C["control_ack"], C["ack_bytes"], C["kind_path_ack"], C["path_ack_bytes"])
+    assert p["guest_forward"]["size"] == V["guest_forwards"][0]["bytes"] == mcc3.GUEST_FORWARD_SIZE
+    for pk in V["packets"]:
+        raw = bytes.fromhex(pk["payload"])
+        assert len(raw) == pk["bytes"]
+        size = {"state": p["zero_hop"]["state_size"], "ack": p["zero_hop"]["ack_size"],
+                "path-ack": p["path_ack"]["size"]}.get(pk["kind"])
+        assert size in (None, len(raw)), pk["name"]
+        if pk["kind"] == "direct":
+            assert len(raw) == 165 + p["direct_report"]["named_bytes"] + 1 + len(pk["path"]) // 2 <= \
+                p["direct_report"]["max_size"]
 
 
 def test_the_signed_announce_is_165_bytes_signed_by_the_node_and_pinned():
-    signed = mcc3.sign_announce(NODE_SEED, bytes.fromhex(A1["payload"]))
-    assert len(signed) == mcc3.ANNOUNCE_SIGNED_SIZE == 165 and signed.hex().upper() == X["signed"]
-    assert signed[:101].hex().upper() == A1["payload"]
+    body = bytes.fromhex(A1["payload"])[:mcc3.ANNOUNCE_SIZE]
+    signed = mcc3.sign_announce(NODE_SEED, body)
+    assert len(signed) == mcc3.ANNOUNCE_SIGNED_SIZE == 165 and signed.hex().upper() == X["signed"] == A1["payload"]
     assert mcc3.announce_signature_ok(signed) and mcc3.announce_is_for(OWNER, signed)
     assert not mcc3.announce_is_for(STRANGER, signed)
     opened = mcc3.open_signed_announce(K_MALIVE, OWNER, signed)
     assert opened.pop("node_key") == NODE and opened == A1["opened"]
     with pytest.raises(mcc3.Mcc3Error):
-        mcc3.sign_announce(CATCHER_SEED, bytes.fromhex(A1["payload"]))
+        mcc3.sign_announce(CATCHER_SEED, body)
     assert (mcc3.ANN_LABEL, mcc3.KIND_NODE, mcc3.NODE_CATCHER_SIZE, mcc3.NODE_FILTER) == (
         b"mcc3/ann|", 0x4E, 40, "mcc/node/+")
 
@@ -163,37 +214,47 @@ def test_the_guest_forward_is_kind_g_under_k_gfwd_and_pinned():
         "answered", "send-failed", "guest-cap", "guests-full", "target-cap", None]
 
 
-# The firmware's G1 (planning/firmware/malive-vectors-20261127.json, guest_forwards[0]): a guest
-# forward with the vector's own guest key, other_owner, made byte for byte.
-G1 = {
-    "k_gfwd": "4D1A64FE086B0D48833C87D769EDDE0B79CE1A0F24D013CDB76EC1CC7382317A", "counter": 3, "expiry": 1795000300,
-    "rid": "000102030405060708090A0B0C0D0E0F", "route": 1, "nonce": "707172737475767778797A7B",
-    "body": "C2" + bytes(range(1, 132)).hex().upper(),
-    "payload": "R2wo_QWMGMiMbM4q-YHS0RyFGxI-1babeHZ3PtCZ6j-DcHFyc3R1dnd4eXp7BMVj9UTz1LH0VVY3YAteLTN3I1EJ1way9D5wfyJ7QQVen7"
-               "UA85jjByt54cI61yTwxFDbI7L-jB4C7XeAgPSXvz8JU16sC7CFgz7-wixuJyLCxO-4bhKATm7EFYPnstwA_JnMNzRCWW-GubYHaxkyD2R_Y"
-               "eDIQGnBZg7cpJBfoRTCygqR_-yGxFY8YVrpKMtdZTJfxQKP9XjYmVxOC41KeeT8sz9I1o_RtBGE_e3kVo2TTs0MAAcuvp1sdpbcnhQB1bqY"
-               "41L1Fk51lnoQjso0e2E1QcsA2gvKQ58JiXWFLFWs75eXYOOiJ00uQNROyyoVcX9K3EkxA3B6UIxnT0VWRQ6xmcme_-2K",
-    "result": "ZoCBgoOEhYaHiImKiwRBZqM4JV_IkmtD4KKUBpSRyzFDwebUvncwCK2HoEXWdJ9eHrGtOxpw_8X7iNw7mExt-eadzsF2njt9Kddxg6EG"
-              "SKaFZ1i7cApwrLi6cLS0QhS7tu1lQYITk5bAETdWBFsplhNe7dgnRCzf9Bq0kffy4VxZ7BgOwZEdnURvqZiBH0AAgKjj86h1HBpS-Ur0-Vbm"
-              "u94OUSuKjmJWCAqsx2kT2IOYo3zHju0tRBTpvcNOtyj_hZdV5OVxVsc4CUdXVgbXI9vvwmeTi4TRe3DSyVyVnwAy--_UbIS3GNRywBItOJOE"
-              "icFxe5_9G-BR0ryZFVi7Wu2dkWiP2UU1HMUISoHdy0Pc2TmO5LbrXg4aMkC9",
-}
+# The firmware's G1: a guest forward with the vector's own guest key, other_owner.
+G1 = V["guest_forwards"][0]
+# The tools' G1 (mccontrol-spec's mcc3-vectors.json): the guest key derived from the command seed.
+M3 = json.loads((SPEC / "vectors" / "mcc3-vectors.json").read_text(encoding="utf-8"))
+TG1 = M3["guest_forwards"][0]
 
 
 def test_the_firmwares_guest_forward_is_made_byte_for_byte_and_its_result_opens():
     from Crypto.Hash import SHA256
     from Crypto.Protocol.KDF import HKDF
+    assert (G1["relay"], G1["guest"]) == ("catcher", "other_owner")
+    f = G1["fields"]
     s = mcc3.shared_secret(SEEDS["other_owner"], CATCHER)
     keys = mcc3.guest_keys(s, CATCHER.lower())
     assert keys["fwd"].hex().upper() == G1["k_gfwd"]
     # the info is "mcc3/gfwd/" and the relay's key as 64 upper-case hex characters, as for mcc3/fwd/
     assert keys["fwd"] == HKDF(s, 32, b"", SHA256, context=b"mcc3/gfwd/" + CATCHER.upper().encode("ascii"))
     assert keys["fwd"] != HKDF(s, 32, b"", SHA256, context=b"mcc3/gfwd/" + CATCHER.lower().encode("ascii"))
-    g = mcc3.seal_guest_forward(keys, STRANGER, CATCHER, G1["counter"], G1["expiry"], bytes.fromhex(G1["rid"]), NODE,
-                                G1["route"], bytes.fromhex(G1["body"]), nonce=bytes.fromhex(G1["nonce"]))
-    assert g == G1["payload"]
-    r = mcc3.open_forward_result(keys, G1["result"])
-    assert (r["counter"], r["status"], r["name"], r["clock"], r["sent"]) == (3, 10, "guest-cap", 1795000010, 0)
+    g = mcc3.seal_guest_forward(keys, STRANGER, CATCHER, f["counter"], f["expiry"], bytes.fromhex(f["rid"]), f["target"],
+                                f["route"], bytes.fromhex(f["body"]), f["path_len"], bytes.fromhex(f["path"]),
+                                nonce=bytes.fromhex(G1["nonce"]))
+    assert g == G1["payload"] and len(mcc3.unb64(g)) == G1["bytes"]
+    r = mcc3.open_forward_result(keys, G1["result"]["payload"])
+    assert (r["counter"], r["status"], r["name"], r["clock"], r["sent"]) == (
+        f["counter"], G1["result"]["status"], G1["result"]["status_name"], G1["result"]["clock"], 0)
+
+
+def test_the_tools_guest_forward_in_the_spec_is_made_from_the_command_seed():
+    seed = mcc3.guest_seed(TG1["command_seed"])
+    assert (seed, envelope.public_key_hex(seed), TG1["guest_key_info"]) == (TG1["guest_seed"], TG1["guest_key"],
+                                                                            mcc3.INFO_GUEST_KEY)
+    secret = mcc3.shared_secret(seed, TG1["relay"])
+    keys = mcc3.guest_keys(secret, TG1["relay"])
+    assert (secret.hex().upper(), keys["fwd"].hex().upper()) == (TG1["shared_secret"], TG1["k_gfwd"])
+    g = mcc3.seal_guest_forward(keys, TG1["guest_key"], TG1["relay"], TG1["counter"], TG1["expiry"],
+                                bytes.fromhex(TG1["rid"]), TG1["target"], TG1["route"], bytes.fromhex(TG1["body"]),
+                                nonce=bytes.fromhex(TG1["nonce"]))
+    assert g == TG1["payload"] and TG1["guest_key"] == X["guest_key"]
+    command_key = envelope.public_key_hex(TG1["command_seed"])
+    assert command_key not in g and bytes.fromhex(command_key) not in mcc3.unb64(g)
+    assert mcc3.open_forward_result(keys, TG1["result"]["payload"])["name"] == "guest-cap"
 
 
 def test_open_node_stops_at_the_tag_and_at_the_signature_without_a_key_agreement():
@@ -415,7 +476,7 @@ def test_a_guest_forward_goes_through_a_strangers_observer_and_its_refusals_are_
     for status, name in ((10, "guest-cap"), (11, "guests-full"), (12, "target-cap")):
         server.guest_status = status
         _t, _p, answers, lines = actions.send(store, "get name", device=store.device("cabin"), via="relay", relay=relay)
-        assert answers == {} and f"the relay says {name}: {mcc3.GUEST_HELP[status]}" in lines[1]
+        assert answers == {} and f"the relay says {name}: {mcc3.FORWARD_HELP[status]}" in lines[1]
         assert store.history(NODE[:8])[-1]["relay"]["status"] == name
     assert [f["counter"] for f in server.forwards] == sorted(set(f["counter"] for f in server.forwards))
     assert server.forwards[-1]["counter"] > first
