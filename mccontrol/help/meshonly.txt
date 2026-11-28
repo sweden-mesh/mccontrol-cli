@@ -52,6 +52,11 @@ What is different on a mesh-only node
   when, and the battery level it reported; those Observers can relay to
   it (see [[relay]]). "get stats" and "get
   sensors" still answer over the mesh.
+  It announces itself every 23 hours, or every 12 when an Observer
+  next to it acks it on the first try. On a low battery it reports
+  less: under announce.low (3600 mV) not every 12 hours, under
+  announce.critical (3400 mV) with one try and the fallback every
+  second report (see [[commands]]).
   It is updated by USB or Bluetooth as before. There is no update over
   the mesh.
 

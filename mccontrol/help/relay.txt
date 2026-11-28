@@ -10,14 +10,15 @@ target.
 
 What can be a relay
   An Observer image with remote control (rc or arrc) on lou-20 or later,
-  on MQTT, holding the SAME command key as the target, and in radio
-  reach of it, directly or over the mesh. A relay serves the holder of
-  its own command key and nobody else. A node without a command key
-  never relays, and a mesh-only node cannot: it has no MQTT.
+  on MQTT, and in radio reach of the target, directly or over the mesh.
+  On lou-20 it must hold the SAME command key as the target: it serves
+  the holder of its own command key and nobody else, and a node without
+  a command key never relays. A mesh-only node cannot: it has no MQTT.
 
 Someone else's Observer (lou-21)
   From lou-21 any Observer relays for anyone, within half of its
-  budget. The Observers that caught a node's announce are kept with the
+  budget, unless its owner set "relay own" or "relay off". A lou-21
+  node with no command key of its own still relays for others. The Observers that caught a node's announce are kept with the
   node (see [[meshonly]]), and any of them can be the relay: name it, or
   let the tool choose.
     mccontrol send cabin ver --via relay:auto
@@ -65,8 +66,10 @@ The relay's budget
   day, and two an hour for floods that leave the relay's region home.
   The budget is fixed. A restart of the relay opens a new burst.
   "get relay" sent to the relay shows what is left:
-    > own, forwarded 3, answered 2, refused 1, burst, 39.9 s airtime
-    left, floods today 1 of 100
+    > any, forwarded 3, answered 2, refused 1, burst, 39.9 s airtime
+    left, floods today 1 of 100, guests: 3 keys, 7 floods today
+  "guests" is what other owners sent through it today; a node on
+  "own" shows no guests.
 
 What comes back
   The target's answer, with how well the relay heard it. Or one word
@@ -81,9 +84,16 @@ What comes back
   With every word but "no answer", nothing went on the air.
 
 Switch relaying
-  It is on by default. "set relay off" stops a node relaying, "set
-  relay own" turns it on again. Both travel over the plane, so no visit
-  is needed.
+  set relay any    relays for you and, within its caps, for other
+                   owners. The default from lou-21.
+  set relay own    relays for the holder of its own command key only,
+                   lou-20's default. A node updated from lou-20 starts
+                   on any; type this once to keep it to yourself.
+  set relay off    relays for nobody.
+  set relay.guest <0-100>
+                   floods a day for each other owner, default 10.
+  All travel over the plane, so no visit is needed. "get relay" and
+  "get relay.guest" read them. lou-20 knows only own and off.
 
 Who picks the relay
   On the command line you name the relay; --via auto never takes one.

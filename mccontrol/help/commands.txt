@@ -68,9 +68,11 @@ or "get" with its name):
                            requests were answered and refused
   get sensors              what the node measures, on either road:
                            > batt=3881mV mcu=21.5C temp=23.5C hum=40.5%
-  get relay, set relay off|own
-                           whether the node relays your commands, and
-                           what is left of its budget (see [[relay]])
+  get relay, set relay any|own|off
+                           whether the node relays commands, and what
+                           is left of its budget. own and off on lou-20;
+                           any, the default from lou-21, also relays for
+                           other owners (see [[relay]])
   set alive.interval <5-1440>
                            minutes between a node's alive messages,
                            default 15 (see [[discover]])
@@ -91,6 +93,20 @@ or "get" with its name):
                            (see [[signing]])
   time now                 over the mesh only: mend a clock that fell
                            behind (see [[mesh]])
+
+New with lou-21:
+
+  set relay.guest <0-100>  floods a day the node relays for each other
+                           owner, default 10; get relay.guest reads it
+                           (see [[relay]])
+  set announce.low <mV>, set announce.critical <mV>
+                           a mesh-only node reports less on a low
+                           battery: under announce.low (default 3600)
+                           no report every 12 hours, under
+                           announce.critical (default 3400) one zero-hop
+                           try, and the path and the flood only every
+                           second report. 0 switches each off. "get
+                           announce.low" reads it (see [[meshonly]])
 
 On the node's console only, never over the plane:
 
