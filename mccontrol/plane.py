@@ -181,7 +181,7 @@ FORWARD_WAIT_SECS = 135.0
 def forward_payload(relay_keys, relay_key_hex, counter, target_key_hex, route, body, path_len=0, path=b"",
                     ttl_secs=FORWARD_TTL_SECS, now=None, guest_key_hex=None):
     """The sealed forward for `mcc/cmd/<RELAY KEY>`, its result named to this session's RID.
-    With `guest_key_hex` (our command public key) the relay is a stranger's (lou-21): a guest
+    With `guest_key_hex` (our guest key, `store.guest_public_key`) the relay is a stranger's (lou-21): a guest
     forward, kind G, and `relay_keys` are `mcc3.guest_keys`."""
     expiry = int(time.time() if now is None else now) + min(int(ttl_secs), FORWARD_TTL_SECS)
     try:

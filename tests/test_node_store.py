@@ -38,11 +38,13 @@ X = {
              "MT7mTWe6yhvR1nFdP3xSqH3ayAnRu2M_JSplf2bNBGc7tSxX79SkVGiqLwdVNVHvX6eqHyAq2cxXnP4xO2qMA8Qq0E77-IOuZmzRbWsuLU4"
              "1AFdg8PAt3jvM7H86ZqERX0XXIPTcE1w658TiLco4_bHv1qSV_48ob9auoCAgBsKP0FjBjIjGzOKvmB0tEchRsSPtW2m3h2dz7Qmeo_g7Bf"
              "_WoeAAAB",
-    "k_gfwd": "C306F53A7AC15E4105877C80832976DF24E67091D441A12B3519D961A0D694AA",
-    "guest": "R-1UpZ-xrDpRI5NRNilBuGjoWmDj17JIXYKIIdx6acJ5YGFiY2RlZmdoaWpr6t0Bm7q0wLyu6JLJUgTQkPKP6iwCQVF33h3LdkobpZXPHp6R"
-             "lMGdC_DaEYMimXedD_ScJrful4r0b8upyXm5o7efqwI6X2qLWeNW87YdKxW2_2jBCEmjXZuNvMtNUwYo32zivIqRYxNuAP5FxdXBFVKW62GDI"
-             "6dbD32cu_K4xruKraVUKHzSudBLhDdk0A0R8_oLSmqMqCXh5Db-T9cVabd6knAEu_uxUM6U3dmsKVkE20jqWkYfull-MH4SHw6pUyaEdllqJR"
-             "T_-RB5nAvSxtgrgi_9iAruGuaBnQRqzVzI7u2ca_4PL4EQ4qkx6n97YKXsm4EEydFusYUZ1DvkXiUiJ6d_oXqZ",
+    # the guest key of OWNER_SEED (HKDF "mcc3/guestkey/"), K_gfwd with CATCHER, and a guest forward
+    "guest_key": "CE91C3FE7050EC6881C9803989768080814ADA7FC90F4E9341F23E8797894852",
+    "k_gfwd": "9F518025C8CFE00D01F3D63FB7C881C73348D08239B129A442E2D4D3AA05BD4A",
+    "guest": "R86Rw_5wUOxogcmAOYl2gICBStp_yQ9Ok0HyPoeXiUhSYGFiY2RlZmdoaWpreKaNfLf8hapfn50oWZf29yaQ7Pwb5yvB8rap3v2v3CVQoIiEW7L1"
+             "IcGgAu-MifHnV7nKvE6kz4qVPqyyq2XD2aMhXkXJs7G46KJz3ztP_upMvzYlJdz-zM9KlqUqgHoHhjwE3nYwwkQ9q_VO_Ti6lRmDjSwcvPMLhYeQ"
+             "CgUn_lGxu5dtnWmD3TYUq5joe9NIdYMEPdJT2b4nfCE8I0Rt7JJN5It-A8-vOnlPGcuNorZU54vWzK8P9QSba79X9XtW548ZVieqo7OsGxy7dduR"
+             "GzIz-7VcJxhhIR9FAjpeAI70MPhbkJrlvzIbCIP5AkFKOCKzlK6E9wnwQ-_OCVj7XHTj3k7GnxTW",
     "nonce": "606162636465666768696A6B", "rid": "00112233445566778899AABBCCDDEEFF",
 }
 GUEST_BODY = bytes([0xC2]) + bytes([7]) * 131
@@ -127,19 +129,29 @@ def test_the_node_entry_is_kind_n_with_40_byte_catchers_and_pinned():
             mcc3.open_node_entry(bad)
 
 
+def test_the_guest_key_is_derived_from_the_command_key_and_is_not_it():
+    seed = mcc3.guest_seed(OWNER_SEED)
+    assert envelope.public_key_hex(seed) == X["guest_key"] != OWNER
+    assert mcc3.guest_seed(OWNER_SEED) == seed, "the same command key, the same guest key"
+    assert envelope.public_key_hex(mcc3.guest_seed(SEEDS["other_owner"])) not in (X["guest_key"], STRANGER)
+
+
 def test_the_guest_forward_is_kind_g_under_k_gfwd_and_pinned():
-    keys = mcc3.guest_keys(mcc3.shared_secret(OWNER_SEED, CATCHER), CATCHER)
+    guest_seed = mcc3.guest_seed(OWNER_SEED)
+    GUEST = X["guest_key"]
+    keys = mcc3.guest_keys(mcc3.shared_secret(guest_seed, CATCHER), CATCHER)
     assert keys["fwd"].hex().upper() == X["k_gfwd"]
-    assert mcc3.guest_keys(mcc3.shared_secret(CATCHER_SEED, OWNER), CATCHER) == keys        # the relay's side
+    assert mcc3.guest_keys(mcc3.shared_secret(CATCHER_SEED, GUEST), CATCHER) == keys        # the relay's side
     assert keys["fwd"] != mcc3.owner_keys(OWNER_SEED, CATCHER)["fwd"]
-    g = mcc3.seal_guest_forward(keys, OWNER, CATCHER, 1795000100, 1795000250, bytes.fromhex(X["rid"]), NODE, 0,
+    assert keys != mcc3.guest_keys(mcc3.shared_secret(OWNER_SEED, CATCHER), CATCHER), "not under the command key"
+    g = mcc3.seal_guest_forward(keys, GUEST, CATCHER, 1795000100, 1795000250, bytes.fromhex(X["rid"]), NODE, 0,
                                 GUEST_BODY, nonce=bytes.fromhex(X["nonce"]))
     assert g == X["guest"]
     raw = mcc3.unb64(g)
-    assert len(raw) == mcc3.GUEST_FORWARD_SIZE and raw[0] == 0x47 and raw[1:33].hex().upper() == OWNER
+    assert len(raw) == mcc3.GUEST_FORWARD_SIZE and raw[0] == 0x47 and raw[1:33].hex().upper() == GUEST
     o = mcc3.open_guest_forward(CATCHER_SEED, g)
     assert (o["guest"], o["counter"], o["expiry"], o["rid"].hex().upper(), o["target"], o["route"]) == (
-        OWNER, 1795000100, 1795000250, X["rid"], NODE, 0)
+        GUEST, 1795000100, 1795000250, X["rid"], NODE, 0)
     for at in (0, 1, 40, 50, len(raw) - 1):
         with pytest.raises(mcc3.Refused):
             mcc3.open_guest_forward(CATCHER_SEED, mcc3.b64(raw[:at] + bytes([raw[at] ^ 1]) + raw[at + 1:]))
@@ -149,6 +161,39 @@ def test_the_guest_forward_is_kind_g_under_k_gfwd_and_pinned():
     assert mcc3.open_forward_result(keys, res)["name"] == "guest-cap"
     assert [mcc3.status_name(n) for n in (0, 9, 10, 11, 12, 13)] == [
         "answered", "send-failed", "guest-cap", "guests-full", "target-cap", None]
+
+
+# The firmware's G1 (planning/firmware/malive-vectors-20261127.json, guest_forwards[0]): a guest
+# forward with the vector's own guest key, other_owner, made byte for byte.
+G1 = {
+    "k_gfwd": "4D1A64FE086B0D48833C87D769EDDE0B79CE1A0F24D013CDB76EC1CC7382317A", "counter": 3, "expiry": 1795000300,
+    "rid": "000102030405060708090A0B0C0D0E0F", "route": 1, "nonce": "707172737475767778797A7B",
+    "body": "C2" + bytes(range(1, 132)).hex().upper(),
+    "payload": "R2wo_QWMGMiMbM4q-YHS0RyFGxI-1babeHZ3PtCZ6j-DcHFyc3R1dnd4eXp7BMVj9UTz1LH0VVY3YAteLTN3I1EJ1way9D5wfyJ7QQVen7"
+               "UA85jjByt54cI61yTwxFDbI7L-jB4C7XeAgPSXvz8JU16sC7CFgz7-wixuJyLCxO-4bhKATm7EFYPnstwA_JnMNzRCWW-GubYHaxkyD2R_Y"
+               "eDIQGnBZg7cpJBfoRTCygqR_-yGxFY8YVrpKMtdZTJfxQKP9XjYmVxOC41KeeT8sz9I1o_RtBGE_e3kVo2TTs0MAAcuvp1sdpbcnhQB1bqY"
+               "41L1Fk51lnoQjso0e2E1QcsA2gvKQ58JiXWFLFWs75eXYOOiJ00uQNROyyoVcX9K3EkxA3B6UIxnT0VWRQ6xmcme_-2K",
+    "result": "ZoCBgoOEhYaHiImKiwRBZqM4JV_IkmtD4KKUBpSRyzFDwebUvncwCK2HoEXWdJ9eHrGtOxpw_8X7iNw7mExt-eadzsF2njt9Kddxg6EG"
+              "SKaFZ1i7cApwrLi6cLS0QhS7tu1lQYITk5bAETdWBFsplhNe7dgnRCzf9Bq0kffy4VxZ7BgOwZEdnURvqZiBH0AAgKjj86h1HBpS-Ur0-Vbm"
+              "u94OUSuKjmJWCAqsx2kT2IOYo3zHju0tRBTpvcNOtyj_hZdV5OVxVsc4CUdXVgbXI9vvwmeTi4TRe3DSyVyVnwAy--_UbIS3GNRywBItOJOE"
+              "icFxe5_9G-BR0ryZFVi7Wu2dkWiP2UU1HMUISoHdy0Pc2TmO5LbrXg4aMkC9",
+}
+
+
+def test_the_firmwares_guest_forward_is_made_byte_for_byte_and_its_result_opens():
+    from Crypto.Hash import SHA256
+    from Crypto.Protocol.KDF import HKDF
+    s = mcc3.shared_secret(SEEDS["other_owner"], CATCHER)
+    keys = mcc3.guest_keys(s, CATCHER.lower())
+    assert keys["fwd"].hex().upper() == G1["k_gfwd"]
+    # the info is "mcc3/gfwd/" and the relay's key as 64 upper-case hex characters, as for mcc3/fwd/
+    assert keys["fwd"] == HKDF(s, 32, b"", SHA256, context=b"mcc3/gfwd/" + CATCHER.upper().encode("ascii"))
+    assert keys["fwd"] != HKDF(s, 32, b"", SHA256, context=b"mcc3/gfwd/" + CATCHER.lower().encode("ascii"))
+    g = mcc3.seal_guest_forward(keys, STRANGER, CATCHER, G1["counter"], G1["expiry"], bytes.fromhex(G1["rid"]), NODE,
+                                G1["route"], bytes.fromhex(G1["body"]), nonce=bytes.fromhex(G1["nonce"]))
+    assert g == G1["payload"]
+    r = mcc3.open_forward_result(keys, G1["result"])
+    assert (r["counter"], r["status"], r["name"], r["clock"], r["sent"]) == (3, 10, "guest-cap", 1795000010, 0)
 
 
 def test_open_node_stops_at_the_tag_and_at_the_signature_without_a_key_agreement():
@@ -203,8 +248,9 @@ class FakeServer:
             elif self.target_silent:
                 res = mcc3.seal_forward_result(f["keys"], f["counter"], 1, 1795000005, sent=1)
             else:
-                req = mcc3.open_mesh_request(NODE_SEED, f["guest"], bytes(4) + f["body"])
-                answer = mcc3.seal_mesh_response(mcc3.node_keys(NODE_SEED, f["guest"]), 0, req["counter"], 0,
+                # the body is the owner's request to its node, signed by the command key, not the guest key
+                req = mcc3.open_mesh_request(NODE_SEED, OWNER, bytes(4) + f["body"])
+                answer = mcc3.seal_mesh_response(mcc3.node_keys(NODE_SEED, OWNER), 0, req["counter"], 0,
                                                  1795000000, "> " + req["command"])[4:]
                 res = mcc3.seal_forward_result(f["keys"], f["counter"], 0, 1795000005, sent=1, snr=20, response=answer)
             self.on_message(self, None, types.SimpleNamespace(topic=mcc3.reply_topic(f["rid"]), payload=res.encode()))
@@ -358,7 +404,8 @@ def test_a_guest_forward_goes_through_a_strangers_observer_and_its_refusals_are_
     topic, payload, answers, lines = actions.send(store, "get name", device=d, via="relay", relay=relay)
     assert [t for t, _p in server.published] == [mcc3.command_topic(CATCHER)]
     raw = mcc3.unb64(server.published[0][1])
-    assert raw[0] == 0x47 and raw[1:33].hex().upper() == OWNER
+    assert raw[0] == 0x47 and raw[1:33].hex().upper() == X["guest_key"] == store.guest_public_key() != OWNER
+    assert OWNER not in server.published[0][1] and bytes.fromhex(OWNER) not in raw, "the command key stays home"
     assert answers[NODE[:8]].reply == "> get name" and answers[NODE[:8]].verified
     assert "someone else's Observer" in lines[0]
     h = store.history(NODE[:8])[-1]

@@ -897,10 +897,15 @@ def open_node_entry(payload):
 
 # -- a guest forward: relaying through a stranger's Observer (lou-21, section 5) -------------
 #
-#     K_gfwd  HKDF-SHA256(X25519(guest command key, relay identity), salt empty, "mcc3/gfwd/" + relay KEY)
+#     guest   the guest key: an Ed25519 key pair whose seed is HKDF-SHA256(command seed, salt empty,
+#             "mcc3/guestkey/"), so a relay never sees the owner's command key (operator 2026-11-28,
+#             L21-G12). Made again from the command seed each time; never stored, never shown.
+#     K_gfwd  HKDF-SHA256(X25519(guest key, relay identity), salt empty, "mcc3/gfwd/" + relay KEY,
+#             64 upper-case hex characters as for mcc3/fwd/)
 #     wire    'G' ‖ guest key (32) ‖ nonce (12) ‖ ChaCha20-Poly1305[K_gfwd](the body of a forward),
 #             AAD the 45 bytes before it; the result is a forward result sealed under K_gfwd.
 
+INFO_GUEST_KEY = "mcc3/guestkey/"
 INFO_GFWD = "mcc3/gfwd/"
 KIND_GUEST_FORWARD = 0x47                                                                             # "G"
 GUEST_FORWARD_SIZE = 1 + 32 + NONCE_LEN + (FORWARD_SIZE - 2 - NONCE_LEN)                             # 309
@@ -930,16 +935,22 @@ def status_name(status):
     return FORWARD_STATUSES[status] if status < len(FORWARD_STATUSES) else GUEST_STATUSES.get(status)
 
 
+def guest_seed(command_seed_hex):
+    """The seed of the guest key, from the command seed: the same seed always gives the same guest
+    key, and the guest key tells nothing of the command key."""
+    return HKDF(_seed(command_seed_hex), 32, b"", SHA256, context=INFO_GUEST_KEY.encode("ascii")).hex().upper()
+
+
 def guest_keys(secret, relay_key_hex):
-    """`{"fwd": K_gfwd}` from S (the guest's command key with the relay) and the relay's key: the
+    """`{"fwd": K_gfwd}` from S (the guest key with the relay) and the relay's key: the
     shape `open_forward_result` takes."""
     return {"fwd": HKDF(secret, 32, b"", SHA256, context=(INFO_GFWD + _key_hex(relay_key_hex)).encode("ascii"))}
 
 
 def seal_guest_forward(keys, guest_key_hex, relay_key_hex, counter, expiry, rid, target_key_hex, route, body,
                        path_len=0, path=b"", nonce=None):
-    """A guest forward for `mcc/cmd/<RELAY KEY>`: as `seal_forward`, with the guest's own command
-    public key in clear and `keys` from `guest_keys`."""
+    """A guest forward for `mcc/cmd/<RELAY KEY>`: as `seal_forward`, with the guest key (from
+    `guest_seed`, never the command key) in clear and `keys` from `guest_keys`."""
     target = _forward_checks(relay_key_hex, target_key_hex, rid, route, path_len, path, body)
     nonce = secrets.token_bytes(NONCE_LEN) if nonce is None else nonce
     header = bytes([KIND_GUEST_FORWARD]) + bytes.fromhex(_key_hex(guest_key_hex)) + nonce

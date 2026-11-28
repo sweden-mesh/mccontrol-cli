@@ -540,14 +540,16 @@ class Store:
                 self.save_ecdh_cache(own)
         return mcc3.derive(bytes.fromhex(secret), key)
 
+    def guest_public_key(self):
+        """The guest key a guest forward carries in clear (lou-21): derived from the command key,
+        never stored, and not the command key, so a stranger's relay does not learn whose it is."""
+        return envelope.public_key_hex(mcc3.guest_seed(self.seed()))
+
     def guest_keys(self, relay_key_hex):
-        """K_gfwd for a guest forward through a stranger's relay (lou-21), from the cached S."""
+        """K_gfwd for a guest forward through a stranger's relay (lou-21), from the guest key's S
+        with the relay (one X25519; not cached, the S cache holds the command key's)."""
         key = envelope.node_key(relay_key_hex or "")
-        own = self.ecdh_cache()
-        if own.get(key) is None:
-            own[key] = mcc3.shared_secret(self.seed(), key).hex()
-            self.save_ecdh_cache(own)
-        return mcc3.guest_keys(bytes.fromhex(own[key]), key)
+        return mcc3.guest_keys(mcc3.shared_secret(mcc3.guest_seed(self.seed()), key), key)
 
     # -- groups (RM-4) -----------------------------------------------------------------
     # A group is a name and the node ids of its members, kept here and nowhere else: a send

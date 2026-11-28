@@ -565,7 +565,7 @@ def send_relay(store, command, device, relay, route="direct", path=None, dry_run
     def seal(forward_counter, body):
         return plane.forward_payload(relay_keys, relay_key, forward_counter, key, mcc3.ROUTES.index(route), body,
                                      path_len=path_len, path=hops, ttl_secs=ttl,
-                                     guest_key_hex=store.public_key() if guest else None)
+                                     guest_key_hex=store.guest_public_key() if guest else None)
 
     if dry_run:
         payload = seal(0, build(0))
